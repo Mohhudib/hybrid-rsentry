@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+frontend/build/
+frontend/.env.local
+
+# Docker
+*.log
+
+# Evidence (sensitive)
+/tmp/rsentry_evidence/
+/tmp/rsentry_canaries/
+/tmp/rsentry_test/
+
+# IDE
+.vscode/
+.idea/
+*.swp
