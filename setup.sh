@@ -16,8 +16,10 @@ echo ""
 echo "==> [1/5] Installing system packages (requires sudo)..."
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
-    python3-venv python3-pip \
-    libpq-dev gcc \
+    python3-venv python3-pip python3-dev \
+    libpq-dev gcc gfortran \
+    libopenblas-dev liblapack-dev \
+    pkg-config meson ninja-build \
     iptables auditd \
     nodejs npm 2>/dev/null || true
 
@@ -39,7 +41,8 @@ echo "    Activated: $(which python)"
 # ── 3. Python dependencies ───────────────────────────────────────────────────
 echo ""
 echo "==> [3/5] Installing Python dependencies..."
-pip install --upgrade pip wheel --quiet
+pip install --upgrade pip wheel setuptools --quiet
+pip install scipy --only-binary :all: --quiet
 pip install -r "$REPO_DIR/requirements.txt"
 echo "    Python deps installed."
 
