@@ -16,8 +16,10 @@ A ransomware detection system that extends the academic paper **R-Sentry** by ad
 - **Code is written on:** Windows (CMD + Claude Code CLI)
 - **Project runs on:** Kali Linux VirtualBox
 - **Repo location (Windows):** `C:\Users\Mohammad Hudib\Documents\GitHub\Hybrid-Rsentry`
-- **GitHub:** needs to be pushed (see TODO list below)
-- **Kali workflow:** `git pull` → `source venv/bin/activate` → run services
+- **GitHub repo:** https://github.com/Mohhudib/hybrid-rsentry (Private)
+- **GitHub username:** Mohhudib
+- **Kali username:** mohammad
+- **Kali repo location:** `~/hybrid-rsentry`
 
 ---
 
@@ -45,7 +47,7 @@ main
 
 ---
 
-## Every File Built So Far
+## Every File Built
 
 ### Agent (`agent/`)
 | File | What it does |
@@ -104,7 +106,7 @@ main
 
 ---
 
-## API Event Payload (every agent POST)
+## API Event Payload
 
 ```json
 {
@@ -126,7 +128,7 @@ main
 - `canary_hit = true` → always **CRITICAL**
 - `combined_score >= 70` → **CRITICAL**
 - `combined_score 40–69` → **HIGH**
-- `entropy_delta > 3.5` (single file) → **MEDIUM**
+- `entropy_delta > 3.5` → **MEDIUM**
 - `score < 40` → **LOW**
 
 ---
@@ -145,61 +147,109 @@ CANARY_COUNT=15
 
 ---
 
-## TODO — What's NOT done yet (next steps)
+## Problems Solved & Fixes Applied
 
-- [ ] **Push to GitHub** — remote not added yet (user needs to create GitHub repo first)
-- [ ] **Alembic migrations** — DB schema version control
-- [ ] **Tailwind PostCSS config** — needed to compile frontend CSS (`postcss.config.js`)
-- [ ] **Frontend `.env.local`** — set REACT_APP_API_URL and REACT_APP_WS_URL
-- [ ] **Test on Kali** — clone repo, run setup.sh, docker compose up, run agent
-- [ ] **Makefile** — shortcut commands (make run, make agent, make sim-dfs)
-- [ ] **Unit tests** — pytest for entropy.py, lineage.py, graph.py
+### Problem 1 — PEP 668 externally-managed-environment
+**What happened:** `pip install -r requirements.txt` blocked by Kali system Python protection
+**Fix:** Created `setup.sh` with `python3 -m venv venv` + `source venv/bin/activate`
+
+### Problem 2 — scipy compile error (OpenBLAS not found)
+**What happened:** scipy 1.13.1 has no pre-built wheel for Python 3.13 on Kali, tries to compile from source and fails
+**Fix applied:**
+- Updated `requirements.txt` to `scipy>=1.14.0` and `numpy>=2.0.0`
+- Install scipy from system apt then copy into venv:
+```bash
+sudo apt install -y python3-scipy python3-numpy python3-pandas
+cp -r /usr/lib/python3/dist-packages/scipy ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
+cp -r /usr/lib/python3/dist-packages/numpy ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
+cp -r /usr/lib/python3/dist-packages/pandas ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
+```
+
+### Problem 3 — asyncpg ModuleNotFoundError
+**What happened:** venv was using system SQLAlchemy which couldn't see venv's asyncpg
+**Fix:** Recreate venv without `--system-site-packages`, use `venv/bin/uvicorn` explicitly
+
+### Problem 4 — libopenblas-dev / libatlas-base-dev not found
+**What happened:** These packages don't exist on this Kali version
+**Fix:** Use system apt scipy instead (see Problem 2 fix)
 
 ---
 
-## How to Push to GitHub (not done yet)
+## Current Status (as of 2026-04-08)
+
+| Component | Status |
+|---|---|
+| All code written | ✅ Done |
+| Pushed to GitHub | ✅ Done |
+| Cloned on Kali | ✅ Done |
+| venv created | ✅ Done |
+| scipy/numpy/pandas | ⚠️ In progress — fixing compile issue |
+| pip install complete | ⏳ Not done yet |
+| Docker + PostgreSQL + Redis | ⏳ Not done yet |
+| Backend running | ⏳ Not done yet |
+| Agent running | ⏳ Not done yet |
+| Frontend running | ⏳ Not done yet |
+
+---
+
+## Next Steps (do these on Kali in order)
 
 ```bash
-# In Windows CMD, inside the repo:
-git remote add origin https://github.com/YOUR-USERNAME/Hybrid-Rsentry.git
-git push -u origin main
-git push -u origin develop
-git push origin feat/agent feat/backend feat/detection feat/evp
-```
+# 1. Install system scipy
+sudo apt install -y python3-scipy python3-numpy python3-pandas
 
-## How to Run on Kali (after cloning)
+# 2. Copy into venv
+cp -r /usr/lib/python3/dist-packages/scipy ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
+cp -r /usr/lib/python3/dist-packages/numpy ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
+cp -r /usr/lib/python3/dist-packages/pandas ~/hybrid-rsentry/venv/lib/python3.13/site-packages/
 
-```bash
-git clone https://github.com/YOUR-USERNAME/Hybrid-Rsentry.git
-cd Hybrid-Rsentry
-git checkout develop
-chmod +x setup.sh && ./setup.sh
+# 3. Pull latest code
+cd ~/hybrid-rsentry
+git pull origin develop
 
-# Start infra
+# 4. Install remaining Python deps
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 5. Start Docker services
+sudo apt install -y docker.io docker-compose
+sudo systemctl start docker
 sudo docker compose up -d postgres redis
 
-# Backend (terminal 1)
-source venv/bin/activate
-uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
+# 6. Run backend (terminal 1)
+venv/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
-# Agent (terminal 2)
-sudo venv/bin/python -m agent.monitor
+# 7. Run agent (terminal 2)
+sudo ~/hybrid-rsentry/venv/bin/python -m agent.monitor
 
-# Frontend (terminal 3)
-cd frontend && npm start
-# Open http://localhost:3000
+# 8. Run frontend (terminal 3)
+cd ~/hybrid-rsentry/frontend
+npm start
+
+# 9. Open dashboard
+# Browser → http://localhost:3000
 ```
 
 ---
 
-## Key Decisions Made
+## TODO — Remaining Features
 
-- **venv** used instead of system pip (Kali PEP 668 blocks system-wide installs)
+- [ ] Alembic migrations — DB schema version control
+- [ ] Tailwind PostCSS config (`postcss.config.js`)
+- [ ] Frontend `.env.local`
+- [ ] Makefile — shortcut commands
+- [ ] Unit tests — pytest for entropy, lineage, graph modules
+
+---
+
+## Key Decisions
+
+- **venv** used instead of system pip (Kali PEP 668)
 - **Monorepo** with 4 feature branches all merging into `develop`
-- **Celery + Redis** for async alert push (not blocking the FastAPI event loop)
-- **Canary prefix `AAA_`** so they sort to the top of any directory listing
-- **DRY_RUN=true** env var disables actual SIGKILL/iptables for safe testing
-- **sim_*.py** simulators write random bytes only — no real encryption
+- **Celery + Redis** for async alert push
+- **Canary prefix `AAA_`** sorts to top of directory listings
+- **DRY_RUN=true** disables actual SIGKILL/iptables for safe testing
+- **sim_*.py** write random bytes only — no real encryption
 
 ---
 
