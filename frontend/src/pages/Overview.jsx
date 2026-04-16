@@ -24,7 +24,7 @@ export default function Overview({ liveAlert, liveEvent, connected }) {
         </div>
       </div>
 
-      <StatsBar />
+      <StatsBar liveAlert={liveAlert} />
 
       {/* Event chart — full width */}
       <div className="mb-6">

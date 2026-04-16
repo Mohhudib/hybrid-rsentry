@@ -11,7 +11,7 @@ function StatCard({ label, value, color, sub }) {
   );
 }
 
-export default function StatsBar() {
+export default function StatsBar({ liveAlert }) {
   const [stats, setStats] = useState({
     total: '-', critical: '-', high: '-', hosts: '-', contained: '-',
   });
@@ -36,9 +36,12 @@ export default function StatsBar() {
 
   useEffect(() => {
     fetch();
-    const t = setInterval(fetch, 15000);
+    const t = setInterval(fetch, 5000);
     return () => clearInterval(t);
   }, []);
+
+  // Refresh immediately when a new alert arrives or is acknowledged
+  useEffect(() => { if (liveAlert) fetch(); }, [liveAlert]);
 
   return (
     <div className="flex gap-4 mb-6">

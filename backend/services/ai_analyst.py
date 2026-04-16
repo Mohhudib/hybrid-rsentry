@@ -67,6 +67,8 @@ def build_prompt(event: dict) -> str:
         lines.append(f"Sub-type: {sub_type}")
     if sub_type == "MARKOV_REPOSITION":
         lines.append("CONTEXT: This is an INTERNAL SYSTEM EVENT. The Markov chain module repositioned canary files to new hotspot locations. This is NOT a threat — classify as Benign with LOW risk.")
+    if sub_type == "moved":
+        lines.append("CONTEXT: A canary file was moved. This may be the internal Markov chain adaptive repositioner moving canary files to new hotspot locations (a normal defensive operation), OR a real attacker renaming/moving the canary to hide activity. Check if pid==0 and process==unknown — if so, it is the Markov chain.")
     if ancestors:
         lines.append(f"Process ancestors: {' → '.join(str(a) for a in ancestors[:5])}")
     if reasons:

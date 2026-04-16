@@ -83,7 +83,14 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
         update_host_risk.delay(payload.host_id)
         # AI threat analysis for HIGH/CRITICAL events — skip internal system events
         sub_type = (payload.details or {}).get("sub_type", "")
-        if sub_type == "MARKOV_REPOSITION":
+        # Skip AI for internal system events:
+        # - MARKOV_REPOSITION = Markov chain sending its heartbeat
+        # - moved + pid==0 = Markov chain physically moving a canary file (watchdog on_moved)
+        is_internal = (
+            sub_type == "MARKOV_REPOSITION" or
+            (sub_type == "moved" and payload.pid == 0)
+        )
+        if is_internal:
             pass  # Not a threat — Markov chain repositioning canary files
         else:
             analyze_event_ai.delay(str(event.id), {

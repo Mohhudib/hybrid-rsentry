@@ -53,6 +53,11 @@ export default function HostsPage() {
       <div className="mb-6">
         <h2 className="text-white text-xl font-semibold">Hosts</h2>
         <p className="text-gray-500 text-sm">Monitored endpoints and risk status</p>
+        <div className="mt-3 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-xs text-gray-400 space-y-1 max-w-2xl">
+          <p><span className="text-orange-400 font-semibold">Auto-containment:</span> The agent automatically freezes (SIGSTOP), collects evidence, applies iptables DROP, and kills (SIGKILL) any process that triggers a CRITICAL event — no manual action needed.</p>
+          <p><span className="text-red-400 font-semibold">Contain Host button:</span> Marks the host as administratively isolated in the dashboard. Use this to flag a host after an incident, track which machines are under investigation, or prevent the risk score from clearing.</p>
+          <p><span className="text-green-400 font-semibold">Release Host:</span> Clears the containment flag once the host is confirmed clean.</p>
+        </div>
       </div>
 
       {loading ? (
