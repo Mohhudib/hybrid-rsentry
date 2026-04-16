@@ -109,14 +109,21 @@ def analyze_health_ai(self, recent_events: list):
 def update_host_risk(self, host_id: str):
     """Recompute and persist the risk score for a host."""
     try:
-        asyncio.run(_update_host_risk_async(host_id))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_update_host_risk_async(host_id))
+        finally:
+            loop.close()
     except Exception as exc:
         logger.error("update_host_risk failed: %s", exc)
         raise self.retry(exc=exc, countdown=5)
 
 
 async def _update_host_risk_async(host_id: str):
-    from backend.models.database import AsyncSessionLocal
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import NullPool
     from backend.models.schemas import Host, Alert, Severity
 
     SEVERITY_WEIGHTS = {
@@ -126,21 +133,28 @@ async def _update_host_risk_async(host_id: str):
         Severity.LOW: 2,
     }
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(Host).where(Host.host_id == host_id))
-        host = result.scalar_one_or_none()
-        if host is None:
-            return
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://rsentry:rsentry_pass@localhost:5432/rsentry_db")
+    engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
+    AsyncSession_ = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-        alerts_result = await db.execute(
-            select(Alert).where(
-                Alert.host_id == host_id,
-                Alert.acknowledged == False,  # noqa: E712
+    try:
+        async with AsyncSession_() as db:
+            result = await db.execute(select(Host).where(Host.host_id == host_id))
+            host = result.scalar_one_or_none()
+            if host is None:
+                return
+
+            alerts_result = await db.execute(
+                select(Alert).where(
+                    Alert.host_id == host_id,
+                    Alert.acknowledged == False,  # noqa: E712
+                )
             )
-        )
-        alerts = alerts_result.scalars().all()
+            alerts = alerts_result.scalars().all()
 
-        score = sum(SEVERITY_WEIGHTS.get(a.severity, 0) for a in alerts)
-        host.risk_score = min(float(score), 100.0)
-        await db.commit()
-        logger.info("Host %s risk_score updated to %.1f", host_id, host.risk_score)
+            score = sum(SEVERITY_WEIGHTS.get(a.severity, 0) for a in alerts)
+            host.risk_score = min(float(score), 100.0)
+            await db.commit()
+            logger.info("Host %s risk_score updated to %.1f", host_id, host.risk_score)
+    finally:
+        await engine.dispose()
