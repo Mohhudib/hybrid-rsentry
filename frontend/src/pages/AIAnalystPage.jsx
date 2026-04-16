@@ -180,7 +180,7 @@ export default function AIAnalystPage({ liveAi, connected }) {
             <span style={{ fontSize: 24 }}>🤖</span>
             <h2 className="text-white text-xl font-semibold">AI Threat Analyst</h2>
             <span className="text-xs px-2 py-1 rounded-lg bg-indigo-900 text-indigo-300 font-medium">
-              Powered by Gemini
+              Powered by NVIDIA
             </span>
             <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border ${
               connected ? 'bg-green-900/30 border-green-700 text-green-400' : 'bg-red-900/30 border-red-800 text-red-400'

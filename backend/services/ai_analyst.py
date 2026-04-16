@@ -12,7 +12,7 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "nvidia/llama-3.1-nemotron-70b-instruct"
+MODEL_NAME = "meta/llama-3.1-70b-instruct"
 
 _client = None
 
