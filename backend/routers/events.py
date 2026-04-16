@@ -19,7 +19,7 @@ from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
-ALERT_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
+ALERT_SEVERITIES = {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
 
 
 async def _upsert_host(db: AsyncSession, host_id: str) -> Host:

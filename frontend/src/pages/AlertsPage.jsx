@@ -33,6 +33,12 @@ export default function AlertsPage({ newAlert }) {
     }
   }, []);
 
+  // Auto-refresh every 5 seconds so medium/low counts stay current
+  useEffect(() => {
+    const t = setInterval(fetchAlerts, 5000);
+    return () => clearInterval(t);
+  }, [fetchAlerts]);
+
   useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
 
   useEffect(() => {
