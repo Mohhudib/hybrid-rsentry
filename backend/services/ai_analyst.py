@@ -1,5 +1,6 @@
 """
-ai_analyst.py — Gemini AI analysis for suspicious events.
+ai_analyst.py — NVIDIA AI analysis for suspicious events.
+Uses nvidia/llama-3.1-nemotron-70b-instruct via OpenAI-compatible API.
 Classifies threats, detects techniques/languages, explains behavior.
 """
 import json
@@ -7,12 +8,12 @@ import logging
 import os
 import re
 
-import google.generativeai as genai
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = "gemini-1.5-flash"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+MODEL_NAME = "nvidia/llama-3.1-nemotron-70b-instruct"
 
 _client = None
 
@@ -20,10 +21,12 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        if not GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY not set in environment")
-        genai.configure(api_key=GEMINI_API_KEY)
-        _client = genai.GenerativeModel(MODEL_NAME)
+        if not NVIDIA_API_KEY:
+            raise RuntimeError("NVIDIA_API_KEY not set in environment")
+        _client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=NVIDIA_API_KEY,
+        )
     return _client
 
 
@@ -74,15 +77,23 @@ def build_prompt(event: dict) -> str:
 
 def analyze_event(event: dict) -> dict:
     """
-    Call Gemini to analyze a detection event.
+    Call NVIDIA Nemotron to analyze a detection event.
     Returns a dict with threat classification and recommendations.
     Returns a fallback dict if the API call fails.
     """
     try:
         client = _get_client()
-        prompt = f"{SYSTEM_PROMPT}\n\n{build_prompt(event)}"
-        response = client.generate_content(prompt)
-        text = response.text.strip()
+        prompt = build_prompt(event)
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,
+            max_tokens=500,
+        )
+        text = response.choices[0].message.content.strip()
 
         # Extract JSON from response
         match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -91,7 +102,7 @@ def analyze_event(event: dict) -> dict:
         return json.loads(text)
 
     except Exception as exc:
-        logger.warning("Gemini analysis failed: %s", exc)
+        logger.warning("NVIDIA AI analysis failed: %s", exc)
         return {
             "threat_type": "Analysis unavailable",
             "technique": "—",
@@ -119,9 +130,7 @@ def analyze_system_health(recent_events: list[dict]) -> dict:
         critical_count = severities.count("CRITICAL")
         high_count = severities.count("HIGH")
 
-        prompt = f"""{SYSTEM_PROMPT}
-
-Analyze the overall system health based on recent activity:
+        health_prompt = f"""Analyze the overall system health based on recent activity:
 
 Total events (last period): {len(recent_events)}
 Event type breakdown: {json.dumps(counts)}
@@ -140,20 +149,28 @@ Respond with JSON:
   "confidence": "HIGH | MEDIUM | LOW"
 }}"""
 
-        response = client.generate_content(prompt)
-        text = response.text.strip()
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": health_prompt},
+            ],
+            temperature=0.1,
+            max_tokens=500,
+        )
+        text = response.choices[0].message.content.strip()
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group())
         return json.loads(text)
 
     except Exception as exc:
-        logger.warning("Gemini health analysis failed: %s", exc)
+        logger.warning("NVIDIA health analysis failed: %s", exc)
         return {
             "status": "UNKNOWN",
             "threat_type": "—",
             "behavior_summary": f"Health analysis unavailable: {str(exc)[:80]}",
             "risk_level": "UNKNOWN",
-            "recommendation": "Check Gemini API key configuration.",
+            "recommendation": "Check NVIDIA_API_KEY configuration.",
             "confidence": "LOW",
         }

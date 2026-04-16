@@ -27,4 +27,4 @@ python-dotenv==1.0.1
 structlog==24.2.0
 
 # AI Analysis
-google-generativeai>=0.7.0
+openai>=1.30.0
