@@ -4,7 +4,7 @@ import { getEvents } from '../api/client';
 // ─── Tree builder ──────────────────────────────────────────────────────────
 
 function emptyStats() {
-  return { alertCount: 0, maxEntropy: 0, hasCanary: false, canaryHit: false, lastEventType: null, lastSeverity: null };
+  return { alertCount: 0, maxEntropy: 0, canaryHit: false, lastEventType: null };
 }
 
 function mergeStats(target, event) {
@@ -12,12 +12,10 @@ function mergeStats(target, event) {
   if (event.entropy_delta > target.maxEntropy) target.maxEntropy = event.entropy_delta;
   if (event.canary_hit) target.canaryHit = true;
   target.lastEventType = event.event_type;
-  target.lastSeverity = event.severity;
 }
 
 function buildTree(events) {
   const root = { name: '/', path: '/', children: {}, stats: emptyStats(), isCanary: false, isFile: false };
-
   for (const ev of events) {
     if (!ev.file_path) continue;
     const parts = ev.file_path.replace(/^\//, '').split('/').filter(Boolean);
@@ -27,10 +25,7 @@ function buildTree(events) {
       const path = '/' + parts.slice(0, i + 1).join('/');
       if (!node.children[name]) {
         node.children[name] = {
-          name,
-          path,
-          children: {},
-          stats: emptyStats(),
+          name, path, children: {}, stats: emptyStats(),
           isCanary: name.startsWith('AAA_'),
           isFile: i === parts.length - 1,
         };
@@ -47,129 +42,200 @@ function sortChildren(children) {
   return Object.values(children).sort((a, b) => {
     if (a.isCanary !== b.isCanary) return a.isCanary ? -1 : 1;
     if (a.stats.alertCount !== b.stats.alertCount) return b.stats.alertCount - a.stats.alertCount;
-    const aIsDir = Object.keys(a.children).length > 0;
-    const bIsDir = Object.keys(b.children).length > 0;
-    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+    const aDir = Object.keys(a.children).length > 0;
+    const bDir = Object.keys(b.children).length > 0;
+    if (aDir !== bDir) return aDir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 }
 
-// ─── Node colours ─────────────────────────────────────────────────────────
+// ─── Colours ───────────────────────────────────────────────────────────────
 
-function nodeStyle(node) {
-  if (node.isCanary && node.stats.canaryHit) return { text: 'text-red-400', bg: 'bg-red-900/30', border: 'border-red-700', badge: 'CANARY HIT' };
-  if (node.isCanary) return { text: 'text-cyan-300', bg: 'bg-cyan-900/20', border: 'border-cyan-700', badge: 'CANARY' };
-  if (node.stats.alertCount > 0) return { text: 'text-orange-300', bg: 'bg-orange-900/20', border: 'border-orange-700', badge: null };
-  if (node.stats.maxEntropy > 3.5) return { text: 'text-yellow-300', bg: 'bg-yellow-900/10', border: 'border-yellow-700/50', badge: null };
-  return { text: 'text-gray-300', bg: '', border: 'border-transparent', badge: null };
+function nodeColor(node) {
+  if (node.isCanary && node.stats.canaryHit) return { text: '#f87171', glow: '#ef444460' };
+  if (node.isCanary)                          return { text: '#67e8f9', glow: '#06b6d430' };
+  if (node.stats.alertCount > 0)              return { text: '#fb923c', glow: '#f9731630' };
+  if (node.stats.maxEntropy > 3.5)            return { text: '#fbbf24', glow: null };
+  return { text: '#9ca3af', glow: null };
 }
 
-function EntropyBar({ value }) {
+function EntropyPill({ value }) {
+  const color = value > 5 ? '#ef4444' : value > 3.5 ? '#fbbf24' : '#22c55e';
   const pct = Math.min(100, (value / 8) * 100);
-  const color = value > 5 ? 'bg-red-500' : value > 3.5 ? 'bg-yellow-400' : 'bg-green-500';
   return (
-    <div className="flex items-center gap-1">
-      <div className="w-12 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-gray-500 text-xs">{value.toFixed(1)}</span>
-    </div>
+    <span className="inline-flex items-center gap-1 ml-2">
+      <span style={{ fontSize: 10, color: '#6b7280' }}>H:</span>
+      <span className="relative inline-block w-14 h-1.5 rounded-full overflow-hidden bg-gray-700">
+        <span className="absolute left-0 top-0 h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </span>
+      <span style={{ fontSize: 10, color }}>{value.toFixed(1)}</span>
+    </span>
   );
 }
 
-// ─── Tree node component ───────────────────────────────────────────────────
+// ─── Single tree row ───────────────────────────────────────────────────────
 
-function TreeNode({ node, depth = 0, flashPaths, defaultOpen }) {
+function TreeRow({ node, prefix, isLast, flashPaths, depth }) {
   const hasChildren = Object.keys(node.children).length > 0;
-  const [open, setOpen] = useState(defaultOpen || depth < 2 || node.stats.alertCount > 0 || node.isCanary);
+  const autoOpen = depth < 2 || node.stats.alertCount > 0 || node.isCanary || node.stats.canaryHit;
+  const [open, setOpen] = useState(autoOpen);
   const isFlashing = flashPaths.has(node.path);
-  const style = nodeStyle(node);
+  const { text, glow } = nodeColor(node);
+
+  const connector = isLast ? '└── ' : '├── ';
+  const childPrefix = prefix + (isLast ? '    ' : '│   ');
+  const children = sortChildren(node.children);
 
   return (
-    <div className={`${depth > 0 ? 'ml-4 border-l border-gray-800' : ''}`}>
+    <div>
+      {/* Row */}
       <div
-        className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer group border ${style.bg} ${style.border} ${
-          isFlashing ? 'animate-pulse' : ''
-        } hover:bg-gray-800/50 transition-all`}
+        className="flex items-center group cursor-pointer select-none"
+        style={{ backgroundColor: isFlashing ? '#1f2937' : 'transparent', transition: 'background 0.3s' }}
         onClick={() => hasChildren && setOpen((o) => !o)}
       >
-        {/* Expand toggle */}
-        <span className="text-gray-600 w-3 text-xs shrink-0">
-          {hasChildren ? (open ? '▾' : '▸') : ' '}
+        {/* Tree connector */}
+        <span className="font-mono text-gray-600 whitespace-pre shrink-0" style={{ fontSize: 13 }}>
+          {prefix}{connector}
         </span>
 
+        {/* Arrow for directories */}
+        {hasChildren && (
+          <span className="mr-1 text-gray-500 shrink-0" style={{ fontSize: 11 }}>
+            {open ? '▼' : '▶'}
+          </span>
+        )}
+
         {/* Icon */}
-        <span className="text-xs shrink-0">
+        <span className="mr-1 shrink-0" style={{ fontSize: 13 }}>
           {node.isCanary ? '🛡' : node.isFile ? '📄' : open ? '📂' : '📁'}
         </span>
 
         {/* Name */}
-        <span className={`text-xs font-mono ${style.text} truncate flex-1`}>{node.name}</span>
+        <span
+          className="font-mono text-sm shrink-0"
+          style={{
+            color: text,
+            textShadow: glow ? `0 0 8px ${glow}` : 'none',
+            fontWeight: node.stats.alertCount > 0 || node.isCanary ? 600 : 400,
+          }}
+        >
+          {node.name}
+        </span>
 
-        {/* Badge */}
-        {style.badge && (
-          <span className={`text-xs px-1.5 py-0.5 rounded font-bold shrink-0 ${
-            style.badge === 'CANARY HIT' ? 'bg-red-600 text-white' : 'bg-cyan-800 text-cyan-200'
-          }`}>
-            {style.badge}
+        {/* Badges */}
+        {node.isCanary && node.stats.canaryHit && (
+          <span className="ml-2 text-xs px-1.5 py-0.5 rounded font-bold bg-red-700 text-white shrink-0">
+            CANARY HIT
           </span>
         )}
-
-        {/* Alert count */}
+        {node.isCanary && !node.stats.canaryHit && (
+          <span className="ml-2 text-xs px-1.5 py-0.5 rounded font-bold bg-cyan-900 text-cyan-300 shrink-0">
+            CANARY
+          </span>
+        )}
         {node.stats.alertCount > 0 && (
-          <span className="text-xs bg-red-700 text-white px-1.5 py-0.5 rounded-full font-bold shrink-0">
-            {node.stats.alertCount}
+          <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full font-bold bg-red-800 text-red-200 shrink-0">
+            {node.stats.alertCount} alert{node.stats.alertCount > 1 ? 's' : ''}
           </span>
         )}
 
-        {/* Entropy bar */}
-        {node.stats.maxEntropy > 0 && (
-          <div className="shrink-0 hidden group-hover:flex items-center">
-            <EntropyBar value={node.stats.maxEntropy} />
-          </div>
+        {/* Entropy — always visible if significant, otherwise on hover */}
+        {node.stats.maxEntropy > 3.5 && <EntropyPill value={node.stats.maxEntropy} />}
+        {node.stats.maxEntropy > 0 && node.stats.maxEntropy <= 3.5 && (
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <EntropyPill value={node.stats.maxEntropy} />
+          </span>
+        )}
+
+        {/* Pulse dot for flash */}
+        {isFlashing && (
+          <span className="ml-2 w-2 h-2 rounded-full bg-yellow-400 animate-ping shrink-0" />
         )}
       </div>
 
       {/* Children */}
-      {hasChildren && open && (
-        <div>
-          {sortChildren(node.children).map((child) => (
-            <TreeNode key={child.path} node={child} depth={depth + 1} flashPaths={flashPaths} defaultOpen={false} />
-          ))}
-        </div>
-      )}
+      {hasChildren && open && children.map((child, i) => (
+        <TreeRow
+          key={child.path}
+          node={child}
+          prefix={childPrefix}
+          isLast={i === children.length - 1}
+          flashPaths={flashPaths}
+          depth={depth + 1}
+        />
+      ))}
     </div>
   );
 }
 
-// ─── Main component ────────────────────────────────────────────────────────
+// ─── Root renderer ─────────────────────────────────────────────────────────
 
-export default function FileSystemTree({ newEvent }) {
+function RootRow({ node, flashPaths }) {
+  const hasChildren = Object.keys(node.children).length > 0;
+  const [open, setOpen] = useState(true);
+  const children = sortChildren(node.children);
+
+  return (
+    <div>
+      <div
+        className="flex items-center cursor-pointer mb-1"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {hasChildren && (
+          <span className="mr-1 text-gray-500" style={{ fontSize: 11 }}>
+            {open ? '▼' : '▶'}
+          </span>
+        )}
+        <span className="mr-1" style={{ fontSize: 13 }}>📂</span>
+        <span className="font-mono text-sm text-gray-200 font-semibold">/</span>
+        {node.stats.alertCount > 0 && (
+          <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full font-bold bg-red-800 text-red-200">
+            {node.stats.alertCount} alerts
+          </span>
+        )}
+      </div>
+      {open && children.map((child, i) => (
+        <TreeRow
+          key={child.path}
+          node={child}
+          prefix=""
+          isLast={i === children.length - 1}
+          flashPaths={flashPaths}
+          depth={1}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Main export ───────────────────────────────────────────────────────────
+
+export default function FileSystemTree({ newEvent, connected }) {
   const [tree, setTree] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [flashPaths, setFlashPaths] = useState(new Set());
   const [canaryCount, setCanaryCount] = useState(0);
   const [alertPaths, setAlertPaths] = useState(0);
-  const eventsRef = useRef([]);
+  const [search, setSearch] = useState('');
 
   const rebuild = useCallback((events) => {
-    eventsRef.current = events;
-    const t = buildTree(events);
+    const filtered = search
+      ? events.filter((e) => e.file_path?.toLowerCase().includes(search.toLowerCase()))
+      : events;
+    const t = buildTree(filtered);
     setTree(t);
     setLastUpdated(new Date());
-
-    // Count canaries and alert paths
-    let canaries = 0;
-    let alerts = 0;
-    const countNodes = (node) => {
+    let canaries = 0, alerts = 0;
+    const count = (node) => {
       if (node.isCanary) canaries++;
       if (node.stats.alertCount > 0) alerts++;
-      Object.values(node.children).forEach(countNodes);
+      Object.values(node.children).forEach(count);
     };
-    countNodes(t);
+    count(t);
     setCanaryCount(canaries);
     setAlertPaths(alerts);
-  }, []);
+  }, [search]);
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -184,7 +250,6 @@ export default function FileSystemTree({ newEvent }) {
     return () => clearInterval(t);
   }, [fetchEvents]);
 
-  // Flash new event path on WS push
   useEffect(() => {
     if (!newEvent?.file_path) return;
     const parts = newEvent.file_path.replace(/^\//, '').split('/').filter(Boolean);
@@ -194,43 +259,51 @@ export default function FileSystemTree({ newEvent }) {
   }, [newEvent]);
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col h-full">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-white text-sm font-semibold">Filesystem Monitor</h2>
-          <p className="text-gray-500 text-xs mt-0.5">Live activity tree</p>
+      <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-white text-sm font-semibold">Filesystem Tree</h2>
+            <p className="text-gray-500 text-xs">Live activity · refreshes every 5s</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="flex items-center gap-1 text-cyan-400">
-            <span>🛡</span> {canaryCount} canaries
+        <div className="flex items-center gap-4 text-xs">
+          <span className="text-cyan-400">🛡 {canaryCount} canaries</span>
+          <span className="text-orange-400">⚠ {alertPaths} hot paths</span>
+          <span className={`flex items-center gap-1 ${connected ? 'text-green-400' : 'text-red-400'}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-500'}`} />
+            {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
           </span>
-          <span className="flex items-center gap-1 text-orange-400">
-            <span>⚠</span> {alertPaths} hot paths
-          </span>
-          {lastUpdated && (
-            <span className="text-gray-600">
-              {lastUpdated.toLocaleTimeString()}
-            </span>
-          )}
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="px-4 py-2 border-b border-gray-800 shrink-0">
+        <input
+          type="text"
+          placeholder="Filter paths…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-1.5 font-mono placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+        />
       </div>
 
       {/* Legend */}
-      <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-4 text-xs flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-cyan-400 inline-block" /> Canary zone</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Alert / canary hit</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Entropy spike</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-500 inline-block" /> Normal</span>
-        <span className="text-gray-600 ml-auto">Hover node for entropy</span>
+      <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-5 text-xs text-gray-500 shrink-0 flex-wrap">
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-cyan-400" /> Canary zone</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" /> Alert / hit</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-400" /> Entropy &gt; 3.5</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-600" /> Normal</span>
+        <span className="ml-auto text-gray-700">H: = entropy score (0–8)</span>
       </div>
 
       {/* Tree */}
-      <div className="flex-1 overflow-y-auto p-3 font-mono text-xs">
+      <div className="flex-1 overflow-y-auto p-4 leading-6">
         {!tree ? (
-          <p className="text-gray-500 text-sm p-2">Loading filesystem…</p>
+          <p className="text-gray-500 text-sm">Loading filesystem…</p>
         ) : (
-          <TreeNode node={tree} depth={0} flashPaths={flashPaths} defaultOpen />
+          <RootRow node={tree} flashPaths={flashPaths} />
         )}
       </div>
     </div>

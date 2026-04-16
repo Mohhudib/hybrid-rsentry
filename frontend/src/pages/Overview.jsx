@@ -3,12 +3,11 @@ import StatsBar from '../components/StatsBar';
 import EventChart from '../components/EventChart';
 import AlertFeed from '../components/AlertFeed';
 import HostRiskPanel from '../components/HostRiskPanel';
-import FileSystemTree from '../components/FileSystemTree';
 
 export default function Overview({ liveAlert, connected }) {
   return (
     <div className="flex-1 overflow-auto p-6">
-      {/* Page header with live indicator */}
+      {/* Header with live indicator */}
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-white text-xl font-semibold">Overview</h2>
@@ -26,21 +25,12 @@ export default function Overview({ liveAlert, connected }) {
 
       <StatsBar />
 
-      {/* Main grid: tree left, chart+alerts center, hosts right */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        {/* Filesystem tree — 1 col */}
-        <div className="xl:col-span-1 min-h-96" style={{ maxHeight: '75vh' }}>
-          <FileSystemTree newEvent={liveAlert} />
-        </div>
-
-        {/* Chart + alert feed — 2 cols */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 flex flex-col gap-6">
           <EventChart />
           <AlertFeed newAlert={liveAlert} />
         </div>
-
-        {/* Host risk — 1 col */}
-        <div className="xl:col-span-1">
+        <div>
           <HostRiskPanel />
         </div>
       </div>

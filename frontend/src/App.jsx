@@ -4,6 +4,7 @@ import Overview from './pages/Overview';
 import AlertsPage from './pages/AlertsPage';
 import HostsPage from './pages/HostsPage';
 import ReportsPage from './pages/ReportsPage';
+import FilesystemPage from './pages/FilesystemPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 export default function App() {
@@ -18,11 +19,12 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'dashboard': return <Overview liveAlert={liveAlert} connected={connected} />;
-      case 'alerts':    return <AlertsPage newAlert={liveAlert} />;
-      case 'hosts':     return <HostsPage />;
-      case 'reports':   return <ReportsPage />;
-      default:          return <Overview liveAlert={liveAlert} connected={connected} />;
+      case 'dashboard':  return <Overview liveAlert={liveAlert} connected={connected} />;
+      case 'alerts':     return <AlertsPage newAlert={liveAlert} />;
+      case 'hosts':      return <HostsPage />;
+      case 'filesystem': return <FilesystemPage newEvent={liveAlert} connected={connected} />;
+      case 'reports':    return <ReportsPage />;
+      default:           return <Overview liveAlert={liveAlert} connected={connected} />;
     }
   };
 
