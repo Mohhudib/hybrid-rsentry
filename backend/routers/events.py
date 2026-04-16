@@ -15,7 +15,7 @@ from backend.models.schemas import (
     EventCreate, EventResponse, AlertResponse,
     Severity, EventType,
 )
-from backend.workers.tasks import push_alert_ws, update_host_risk
+from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -69,9 +69,17 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
     await db.commit()
     await db.refresh(event)
 
+    # Push every event live to dashboard
+    push_event_ws.delay(
+        str(event.id), payload.host_id, payload.event_type.value,
+        payload.severity.value, payload.file_path, payload.entropy_delta,
+        payload.canary_hit, payload.process_name, payload.details,
+    )
+
     # Async tasks (fire-and-forget)
     if alert:
-        push_alert_ws.delay(str(alert.id), payload.host_id, payload.severity.value)
+        push_alert_ws.delay(str(alert.id), payload.host_id,
+                            payload.severity.value, payload.event_type.value)
         update_host_risk.delay(payload.host_id)
 
     return event

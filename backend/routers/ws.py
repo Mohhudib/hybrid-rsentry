@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 ALERT_CHANNEL = "rsentry:alerts"
+EVENT_CHANNEL = "rsentry:events"
 
 
 class ConnectionManager:
@@ -50,10 +51,10 @@ manager = ConnectionManager()
 async def websocket_alerts(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        # Subscribe to Redis pub/sub for live alerts
+        # Subscribe to Redis pub/sub for live alerts AND events
         redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         pubsub = redis.pubsub()
-        await pubsub.subscribe(ALERT_CHANNEL)
+        await pubsub.subscribe(ALERT_CHANNEL, EVENT_CHANNEL)
 
         async def redis_reader():
             async for message in pubsub.listen():
@@ -74,7 +75,7 @@ async def websocket_alerts(websocket: WebSocket):
                     await websocket.send_text("pong")
         finally:
             reader_task.cancel()
-            await pubsub.unsubscribe(ALERT_CHANNEL)
+            await pubsub.unsubscribe(ALERT_CHANNEL, EVENT_CHANNEL)
             await redis.aclose()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -83,10 +84,15 @@ async def websocket_alerts(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-async def publish_alert(alert_data: dict[str, Any]) -> None:
-    """Called by Celery task (via asyncio bridge) to push alert to Redis channel."""
+async def publish_to_channel(channel: str, data: dict[str, Any]) -> None:
+    """Publish a message to a Redis pub/sub channel."""
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     try:
-        await redis.publish(ALERT_CHANNEL, json.dumps(alert_data))
+        await redis.publish(channel, json.dumps(data))
     finally:
         await redis.aclose()
+
+
+# Keep old name for backwards compatibility
+async def publish_alert(alert_data: dict[str, Any]) -> None:
+    await publish_to_channel(ALERT_CHANNEL, alert_data)

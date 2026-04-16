@@ -29,21 +29,47 @@ celery_app.conf.update(
 
 
 @celery_app.task(name="push_alert_ws", bind=True, max_retries=3)
-def push_alert_ws(self, alert_id: str, host_id: str, severity: str):
+def push_alert_ws(self, alert_id: str, host_id: str, severity: str, event_type: str = ""):
     """Push a new alert notification to all connected WebSocket clients via Redis pub/sub."""
     try:
-        from backend.routers.ws import publish_alert
+        from backend.routers.ws import publish_to_channel
         payload = {
             "type": "new_alert",
             "alert_id": alert_id,
             "host_id": host_id,
             "severity": severity,
+            "event_type": event_type,
         }
-        asyncio.run(publish_alert(payload))
+        asyncio.run(publish_to_channel("rsentry:alerts", payload))
         logger.info("WS alert pushed: %s", alert_id)
     except Exception as exc:
         logger.error("push_alert_ws failed: %s", exc)
         raise self.retry(exc=exc, countdown=2)
+
+
+@celery_app.task(name="push_event_ws", bind=True, max_retries=2)
+def push_event_ws(self, event_id: str, host_id: str, event_type: str,
+                  severity: str, file_path: str, entropy_delta: float,
+                  canary_hit: bool, process_name: str, details: dict):
+    """Push every event to WebSocket for live dashboard updates."""
+    try:
+        from backend.routers.ws import publish_to_channel
+        payload = {
+            "type": "new_event",
+            "event_id": event_id,
+            "host_id": host_id,
+            "event_type": event_type,
+            "severity": severity,
+            "file_path": file_path,
+            "entropy_delta": entropy_delta,
+            "canary_hit": canary_hit,
+            "process_name": process_name,
+            "details": details or {},
+        }
+        asyncio.run(publish_to_channel("rsentry:events", payload))
+    except Exception as exc:
+        logger.error("push_event_ws failed: %s", exc)
+        raise self.retry(exc=exc, countdown=1)
 
 
 @celery_app.task(name="update_host_risk", bind=True, max_retries=3)

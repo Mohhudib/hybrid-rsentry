@@ -10,21 +10,23 @@ import { useWebSocket } from './hooks/useWebSocket';
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const [liveAlert, setLiveAlert] = useState(null);
+  const [liveEvent, setLiveEvent] = useState(null);
 
   const handleWsMessage = useCallback((msg) => {
     if (msg.type === 'new_alert') setLiveAlert(msg);
+    if (msg.type === 'new_event') setLiveEvent(msg);
   }, []);
 
   const { connected } = useWebSocket(handleWsMessage);
 
   const renderPage = () => {
     switch (page) {
-      case 'dashboard':  return <Overview liveAlert={liveAlert} connected={connected} />;
+      case 'dashboard':  return <Overview liveAlert={liveAlert} liveEvent={liveEvent} connected={connected} />;
       case 'alerts':     return <AlertsPage newAlert={liveAlert} />;
       case 'hosts':      return <HostsPage />;
-      case 'filesystem': return <FilesystemPage newEvent={liveAlert} connected={connected} />;
+      case 'filesystem': return <FilesystemPage newEvent={liveEvent} connected={connected} />;
       case 'reports':    return <ReportsPage />;
-      default:           return <Overview liveAlert={liveAlert} connected={connected} />;
+      default:           return <Overview liveAlert={liveAlert} liveEvent={liveEvent} connected={connected} />;
     }
   };
 

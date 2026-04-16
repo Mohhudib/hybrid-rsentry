@@ -264,7 +264,26 @@ class Monitor:
             self._stop_event.wait(REPOSITION_INTERVAL)
             if self.repositioner.should_reposition():
                 logger.info("Markov repositioning triggered")
+                old_paths = [str(p) for p in self.repositioner.canary_paths]
                 self.repositioner.reposition(fs_graph=self.fs_graph)
+                new_paths = [str(p) for p in self.repositioner.canary_paths]
+                summary = self.repositioner.summary()
+                self.client.send_event(
+                    event_type="HEARTBEAT",
+                    pid=0,
+                    process_name="markov-repositioner",
+                    file_path="",
+                    lineage_score=0.0,
+                    entropy_delta=0.0,
+                    canary_hit=False,
+                    details={
+                        "sub_type": "MARKOV_REPOSITION",
+                        "moved": [{"from": o, "to": n} for o, n in zip(old_paths, new_paths)],
+                        "hotspots": summary.get("top_hotspots", []),
+                        "n_observations": summary.get("n_observations", 0),
+                    },
+                    severity="LOW",
+                )
 
     def start(self):
         logger.info("Hybrid R-Sentry monitor starting | watch=%s dry_run=%s",
