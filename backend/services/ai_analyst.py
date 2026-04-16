@@ -12,7 +12,6 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 MODEL_NAME = "nvidia/llama-3.1-nemotron-70b-instruct"
 
 _client = None
@@ -21,11 +20,12 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        if not NVIDIA_API_KEY:
+        api_key = os.getenv("NVIDIA_API_KEY", "")
+        if not api_key:
             raise RuntimeError("NVIDIA_API_KEY not set in environment")
         _client = OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
-            api_key=NVIDIA_API_KEY,
+            api_key=api_key,
         )
     return _client
 
