@@ -273,7 +273,7 @@ export default function FileSystemTree({ newEvent, connected }) {
           <span className="text-orange-400">⚠ {alertPaths} hot paths</span>
           <span className={`flex items-center gap-1 ${connected ? 'text-green-400' : 'text-red-400'}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-red-500'}`} />
-            {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
+            {lastUpdated ? lastUpdated.toLocaleTimeString('en-JO', { timeZone: 'Asia/Amman' }) : '—'}
           </span>
         </div>
       </div>
