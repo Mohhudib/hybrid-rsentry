@@ -4,9 +4,8 @@ import EventChart from '../components/EventChart';
 import AlertFeed from '../components/AlertFeed';
 import HostRiskPanel from '../components/HostRiskPanel';
 import TacticalResponseLog from '../components/TacticalResponseLog';
-import AIAnalystPanel from '../components/AIAnalystPanel';
 
-export default function Overview({ liveAlert, liveEvent, liveAi, connected }) {
+export default function Overview({ liveAlert, liveEvent, connected }) {
   return (
     <div className="flex-1 overflow-auto p-6">
       {/* Header with live indicator */}
@@ -32,16 +31,13 @@ export default function Overview({ liveAlert, liveEvent, liveAi, connected }) {
         <EventChart />
       </div>
 
-      {/* 4-col grid: Tactical | Alerts | AI Analyst | Hosts */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" style={{ minHeight: 420 }}>
+      {/* 3-col grid: Tactical | Alerts | Hosts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" style={{ minHeight: 420 }}>
         <div className="overflow-hidden" style={{ maxHeight: 560 }}>
           <TacticalResponseLog liveEvent={liveEvent} />
         </div>
         <div className="overflow-hidden" style={{ maxHeight: 560 }}>
           <AlertFeed newAlert={liveAlert} />
-        </div>
-        <div className="overflow-hidden" style={{ maxHeight: 560 }}>
-          <AIAnalystPanel liveAiMessage={liveAi} />
         </div>
         <div>
           <HostRiskPanel />
