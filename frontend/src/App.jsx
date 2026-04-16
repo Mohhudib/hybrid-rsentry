@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Overview from './pages/Overview';
 import AlertsPage from './pages/AlertsPage';
@@ -8,18 +8,52 @@ import FilesystemPage from './pages/FilesystemPage';
 import AIAnalystPage from './pages/AIAnalystPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
+const AI_EXPIRY_MS = 4 * 60 * 1000; // 4 minutes
+
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const [liveAlert, setLiveAlert] = useState(null);
   const [liveEvent, setLiveEvent] = useState(null);
-  const [liveAi, setLiveAi]       = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // AI state lifted here so it persists across page navigation
+  const [aiAnalyses, setAiAnalyses] = useState([]);
+  const [aiHealth, setAiHealth] = useState(null);
+  const [aiNewIds, setAiNewIds] = useState(new Set());
+  const [aiTimestamps, setAiTimestamps] = useState({});
+
   const handleWsMessage = useCallback((msg) => {
-    if (msg.type === 'new_alert')     setLiveAlert(msg);
-    if (msg.type === 'new_event')     setLiveEvent(msg);
-    if (msg.type === 'ai_analysis' || msg.type === 'health_analysis') setLiveAi(msg);
+    if (msg.type === 'new_alert') setLiveAlert(msg);
+    if (msg.type === 'new_event') setLiveEvent(msg);
+
+    if (msg.type === 'ai_analysis' && msg.event_id) {
+      setAiAnalyses(prev => {
+        if (prev.find(a => a.event_id === msg.event_id)) return prev;
+        return [msg, ...prev].slice(0, 100);
+      });
+      setAiNewIds(prev => new Set([...prev, msg.event_id]));
+      setAiTimestamps(prev => ({ ...prev, [msg.event_id]: new Date().toISOString() }));
+      setTimeout(() => setAiNewIds(prev => {
+        const n = new Set(prev); n.delete(msg.event_id); return n;
+      }), 10000);
+    }
+
+    if (msg.type === 'health_analysis') {
+      setAiHealth({ ...msg, timestamp: new Date().toISOString() });
+    }
   }, []);
+
+  // Expire AI analyses older than 4 minutes
+  useEffect(() => {
+    const t = setInterval(() => {
+      const cutoff = Date.now() - AI_EXPIRY_MS;
+      setAiAnalyses(prev => prev.filter(a => {
+        const ts = aiTimestamps[a.event_id];
+        return ts ? new Date(ts).getTime() > cutoff : true;
+      }));
+    }, 30000); // check every 30s
+    return () => clearInterval(t);
+  }, [aiTimestamps]);
 
   const { connected } = useWebSocket(handleWsMessage);
 
@@ -29,7 +63,16 @@ export default function App() {
       case 'alerts':     return <AlertsPage newAlert={liveAlert} />;
       case 'hosts':      return <HostsPage />;
       case 'filesystem': return <FilesystemPage newEvent={liveEvent} connected={connected} />;
-      case 'ai':         return <AIAnalystPage liveAi={liveAi} connected={connected} />;
+      case 'ai':         return (
+        <AIAnalystPage
+          connected={connected}
+          analyses={aiAnalyses}
+          health={aiHealth}
+          newIds={aiNewIds}
+          timestamps={aiTimestamps}
+          onHealthUpdate={setAiHealth}
+        />
+      );
       case 'reports':    return <ReportsPage />;
       default:           return <Overview liveAlert={liveAlert} liveEvent={liveEvent} connected={connected} />;
     }

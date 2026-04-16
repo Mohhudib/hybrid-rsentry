@@ -4,6 +4,7 @@ tasks.py — Celery workers for async processing.
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 
 from celery import Celery
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://rsentry:rsentry_pass@localhost:5432/rsentry_db")
 
 celery_app = Celery(
     "rsentry",
@@ -29,6 +31,25 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
 )
+
+
+def _run(coro):
+    """Run a coroutine in a fresh isolated event loop."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _make_session():
+    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import NullPool
+    engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
+    Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    return engine, Session
 
 
 @celery_app.task(name="push_alert_ws", bind=True, max_retries=3)
@@ -77,7 +98,7 @@ def push_event_ws(self, event_id: str, host_id: str, event_type: str,
 
 @celery_app.task(name="analyze_event_ai", bind=True, max_retries=2)
 def analyze_event_ai(self, event_id: str, event_data: dict):
-    """Send a HIGH/CRITICAL event to Gemini for AI threat analysis and store result."""
+    """Send a HIGH/CRITICAL/MEDIUM event to AI for threat analysis."""
     try:
         from backend.services.ai_analyst import analyze_event
         from backend.routers.ws import publish_to_channel
@@ -86,6 +107,12 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
         result["type"] = "ai_analysis"
         asyncio.run(publish_to_channel("rsentry:ai", result))
         logger.info("AI analysis complete for event %s: %s", event_id, result.get("threat_type"))
+
+        # Auto-acknowledge if AI determines this is Benign or LOW risk
+        if result.get("threat_type") == "Benign" or result.get("risk_level") == "LOW":
+            auto_ack_by_event.delay(event_id)
+            logger.info("Auto-acknowledging alert for event %s (AI: %s)", event_id, result.get("threat_type"))
+
     except Exception as exc:
         logger.error("analyze_event_ai failed: %s", exc)
         raise self.retry(exc=exc, countdown=5)
@@ -99,16 +126,10 @@ def analyze_health_ai(self, recent_events: list):
     try:
         result = analyze_system_health(recent_events)
         result["type"] = "health_analysis"
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(publish_to_channel("rsentry:ai", result))
-        finally:
-            loop.close()
+        _run(publish_to_channel("rsentry:ai", result))
         logger.info("Health analysis: %s", result.get("status"))
     except Exception as exc:
         logger.error("analyze_health_ai failed: %s", exc)
-        # Always publish a result so the UI doesn't hang on loading
         fallback = {
             "type": "health_analysis",
             "status": "UNKNOWN",
@@ -119,33 +140,87 @@ def analyze_health_ai(self, recent_events: list):
             "confidence": "LOW",
         }
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(publish_to_channel("rsentry:ai", fallback))
-            loop.close()
+            _run(publish_to_channel("rsentry:ai", fallback))
         except Exception:
             pass
+
+
+@celery_app.task(name="auto_ack_by_event", bind=True, max_retries=2)
+def auto_ack_by_event(self, event_id: str):
+    """Auto-acknowledge the alert linked to a specific event (AI said Benign/LOW)."""
+    try:
+        _run(_auto_ack_by_event_async(event_id))
+    except Exception as exc:
+        logger.error("auto_ack_by_event failed: %s", exc)
+        raise self.retry(exc=exc, countdown=3)
+
+
+async def _auto_ack_by_event_async(event_id: str):
+    import uuid
+    from backend.models.schemas import Alert
+    engine, Session = _make_session()
+    try:
+        async with Session() as db:
+            result = await db.execute(
+                select(Alert).where(
+                    Alert.event_id == uuid.UUID(event_id),
+                    Alert.acknowledged == False,  # noqa: E712
+                )
+            )
+            alert = result.scalar_one_or_none()
+            if alert:
+                alert.acknowledged = True
+                alert.resolved_at = datetime.now(timezone.utc)
+                await db.commit()
+                logger.info("Auto-acknowledged alert for event %s", event_id)
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="auto_ack_containment", bind=True, max_retries=2)
+def auto_ack_containment(self, host_id: str):
+    """Auto-acknowledge all CRITICAL alerts for a host after containment is complete."""
+    try:
+        _run(_auto_ack_containment_async(host_id))
+    except Exception as exc:
+        logger.error("auto_ack_containment failed: %s", exc)
+        raise self.retry(exc=exc, countdown=3)
+
+
+async def _auto_ack_containment_async(host_id: str):
+    from backend.models.schemas import Alert, Severity
+    engine, Session = _make_session()
+    try:
+        async with Session() as db:
+            result = await db.execute(
+                select(Alert).where(
+                    Alert.host_id == host_id,
+                    Alert.severity == Severity.CRITICAL,
+                    Alert.acknowledged == False,  # noqa: E712
+                )
+            )
+            alerts = result.scalars().all()
+            now = datetime.now(timezone.utc)
+            for alert in alerts:
+                alert.acknowledged = True
+                alert.resolved_at = now
+            await db.commit()
+            logger.info("Auto-acknowledged %d CRITICAL alerts for host %s after containment", len(alerts), host_id)
+    finally:
+        await engine.dispose()
 
 
 @celery_app.task(name="update_host_risk", bind=True, max_retries=3)
 def update_host_risk(self, host_id: str):
     """Recompute and persist the risk score for a host."""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_update_host_risk_async(host_id))
-        finally:
-            loop.close()
+        _run(_update_host_risk_async(host_id))
     except Exception as exc:
         logger.error("update_host_risk failed: %s", exc)
         raise self.retry(exc=exc, countdown=5)
 
 
 async def _update_host_risk_async(host_id: str):
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import NullPool
     from backend.models.schemas import Host, Alert, Severity
 
     SEVERITY_WEIGHTS = {
@@ -155,12 +230,9 @@ async def _update_host_risk_async(host_id: str):
         Severity.LOW: 2,
     }
 
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://rsentry:rsentry_pass@localhost:5432/rsentry_db")
-    engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
-    AsyncSession_ = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
+    engine, Session = _make_session()
     try:
-        async with AsyncSession_() as db:
+        async with Session() as db:
             result = await db.execute(select(Host).where(Host.host_id == host_id))
             host = result.scalar_one_or_none()
             if host is None:
@@ -173,7 +245,6 @@ async def _update_host_risk_async(host_id: str):
                 )
             )
             alerts = alerts_result.scalars().all()
-
             score = sum(SEVERITY_WEIGHTS.get(a.severity, 0) for a in alerts)
             host.risk_score = min(float(score), 100.0)
             await db.commit()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getEvents } from '../api/client';
 import axios from 'axios';
 import { formatDistanceToNow } from 'date-fns';
@@ -126,31 +126,10 @@ function HealthCard({ health }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 
-export default function AIAnalystPage({ liveAi, connected }) {
-  const [analyses, setAnalyses] = useState([]);
-  const [health, setHealth] = useState(null);
-  const [newIds, setNewIds] = useState(new Set());
-  const [timestamps, setTimestamps] = useState({});
+export default function AIAnalystPage({ connected, analyses, health, newIds, timestamps, onHealthUpdate }) {
   const [tab, setTab] = useState('events');
   const [healthLoading, setHealthLoading] = useState(false);
   const [autoHealth, setAutoHealth] = useState(false);
-
-  // Inject live AI results from WebSocket instantly
-  useEffect(() => {
-    if (!liveAi) return;
-    if (liveAi.type === 'ai_analysis' && liveAi.event_id) {
-      setAnalyses(prev => {
-        if (prev.find(a => a.event_id === liveAi.event_id)) return prev;
-        return [liveAi, ...prev].slice(0, 100);
-      });
-      setNewIds(prev => new Set([...prev, liveAi.event_id]));
-      setTimestamps(prev => ({ ...prev, [liveAi.event_id]: new Date().toISOString() }));
-      setTimeout(() => setNewIds(prev => { const n = new Set(prev); n.delete(liveAi.event_id); return n; }), 10000);
-    }
-    if (liveAi.type === 'health_analysis') {
-      setHealth({ ...liveAi, timestamp: new Date().toISOString() });
-    }
-  }, [liveAi]);
 
   const runHealthCheck = useCallback(async () => {
     setHealthLoading(true);
@@ -169,7 +148,7 @@ export default function AIAnalystPage({ liveAi, connected }) {
     return () => clearInterval(t);
   }, [autoHealth, runHealthCheck]);
 
-  const newCount = analyses.filter(a => newIds.has(a.event_id)).length;
+  const newCount = (analyses || []).filter(a => newIds.has(a.event_id)).length;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6">
@@ -222,17 +201,17 @@ export default function AIAnalystPage({ liveAi, connected }) {
       <div className="flex-1 overflow-y-auto">
         {tab === 'events' && (
           <div>
-            {analyses.length === 0 ? (
+            {(analyses || []).length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center">
                 <p style={{ fontSize: 40 }} className="mb-3">🤖</p>
-                <p className="text-gray-400 text-sm">Waiting for HIGH or CRITICAL events…</p>
+                <p className="text-gray-400 text-sm">Waiting for HIGH, MEDIUM or CRITICAL events…</p>
                 <p className="text-gray-600 text-xs mt-1">
-                  Gemini will automatically analyze each threat as it happens
+                  NVIDIA AI will automatically analyze each threat as it happens. Analyses persist for 4 minutes.
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
-                {analyses.map((a, i) => (
+                {(analyses || []).map((a, i) => (
                   <AnalysisCard
                     key={a.event_id || i}
                     analysis={a}

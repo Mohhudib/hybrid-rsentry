@@ -15,7 +15,7 @@ from backend.models.schemas import (
     EventCreate, EventResponse, AlertResponse,
     Severity, EventType,
 )
-from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk, analyze_event_ai
+from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk, analyze_event_ai, auto_ack_containment
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -105,6 +105,11 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
                 "canary_hit": payload.canary_hit,
                 "details": payload.details,
             })
+
+    # When containment completes, auto-acknowledge all CRITICAL alerts for this host
+    if payload.event_type == EventType.CONTAINMENT_COMPLETE:
+        auto_ack_containment.delay(payload.host_id)
+        update_host_risk.delay(payload.host_id)
 
     return event
 
