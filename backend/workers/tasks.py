@@ -72,6 +72,36 @@ def push_event_ws(self, event_id: str, host_id: str, event_type: str,
         raise self.retry(exc=exc, countdown=1)
 
 
+@celery_app.task(name="analyze_event_ai", bind=True, max_retries=2)
+def analyze_event_ai(self, event_id: str, event_data: dict):
+    """Send a HIGH/CRITICAL event to Gemini for AI threat analysis and store result."""
+    try:
+        from backend.services.ai_analyst import analyze_event
+        from backend.routers.ws import publish_to_channel
+        result = analyze_event(event_data)
+        result["event_id"] = event_id
+        result["type"] = "ai_analysis"
+        asyncio.run(publish_to_channel("rsentry:ai", result))
+        logger.info("AI analysis complete for event %s: %s", event_id, result.get("threat_type"))
+    except Exception as exc:
+        logger.error("analyze_event_ai failed: %s", exc)
+        raise self.retry(exc=exc, countdown=5)
+
+
+@celery_app.task(name="analyze_health_ai", bind=True, max_retries=1)
+def analyze_health_ai(self, recent_events: list):
+    """Analyze overall system health using Gemini."""
+    try:
+        from backend.services.ai_analyst import analyze_system_health
+        from backend.routers.ws import publish_to_channel
+        result = analyze_system_health(recent_events)
+        result["type"] = "health_analysis"
+        asyncio.run(publish_to_channel("rsentry:ai", result))
+        logger.info("Health analysis: %s", result.get("status"))
+    except Exception as exc:
+        logger.error("analyze_health_ai failed: %s", exc)
+
+
 @celery_app.task(name="update_host_risk", bind=True, max_retries=3)
 def update_host_risk(self, host_id: str):
     """Recompute and persist the risk score for a host."""

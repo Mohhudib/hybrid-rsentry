@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from backend.models.database import engine, Base
 from backend.routers import events, alerts, hosts, ws
@@ -61,3 +62,15 @@ async def health():
 @app.get("/")
 async def root():
     return {"message": "Hybrid R-Sentry API v1.0.0 — /docs for Swagger UI"}
+
+
+class HealthCheckRequest(BaseModel):
+    events: list[dict] = []
+
+
+@app.post("/api/ai/health")
+async def ai_health_check(body: HealthCheckRequest):
+    """Trigger async AI health analysis of recent events."""
+    from backend.workers.tasks import analyze_health_ai
+    analyze_health_ai.delay(body.events[:100])
+    return {"status": "analysis_queued"}

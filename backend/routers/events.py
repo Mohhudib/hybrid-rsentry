@@ -15,7 +15,7 @@ from backend.models.schemas import (
     EventCreate, EventResponse, AlertResponse,
     Severity, EventType,
 )
-from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk
+from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk, analyze_event_ai
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -81,6 +81,19 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
         push_alert_ws.delay(str(alert.id), payload.host_id,
                             payload.severity.value, payload.event_type.value)
         update_host_risk.delay(payload.host_id)
+        # AI threat analysis for HIGH/CRITICAL events
+        analyze_event_ai.delay(str(event.id), {
+            "event_type": payload.event_type.value,
+            "severity": payload.severity.value,
+            "host_id": payload.host_id,
+            "file_path": payload.file_path,
+            "process_name": payload.process_name,
+            "pid": payload.pid,
+            "entropy_delta": payload.entropy_delta,
+            "lineage_score": payload.lineage_score,
+            "canary_hit": payload.canary_hit,
+            "details": payload.details,
+        })
 
     return event
 

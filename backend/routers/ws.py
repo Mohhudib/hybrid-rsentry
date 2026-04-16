@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 ALERT_CHANNEL = "rsentry:alerts"
 EVENT_CHANNEL = "rsentry:events"
+AI_CHANNEL    = "rsentry:ai"
 
 
 class ConnectionManager:
@@ -54,7 +55,7 @@ async def websocket_alerts(websocket: WebSocket):
         # Subscribe to Redis pub/sub for live alerts AND events
         redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         pubsub = redis.pubsub()
-        await pubsub.subscribe(ALERT_CHANNEL, EVENT_CHANNEL)
+        await pubsub.subscribe(ALERT_CHANNEL, EVENT_CHANNEL, AI_CHANNEL)
 
         async def redis_reader():
             async for message in pubsub.listen():
@@ -75,7 +76,7 @@ async def websocket_alerts(websocket: WebSocket):
                     await websocket.send_text("pong")
         finally:
             reader_task.cancel()
-            await pubsub.unsubscribe(ALERT_CHANNEL, EVENT_CHANNEL)
+            await pubsub.unsubscribe(ALERT_CHANNEL, EVENT_CHANNEL, AI_CHANNEL)
             await redis.aclose()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
