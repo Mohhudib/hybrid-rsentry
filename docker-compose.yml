@@ -1,0 +1,101 @@
+version: "3.9"
+
+services:
+  # -------------------------------------------------------------------------
+  # PostgreSQL
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: rsentry_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rsentry
+      POSTGRES_PASSWORD: rsentry_pass
+      POSTGRES_DB: rsentry_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsentry -d rsentry_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------------------------------------------------------
+  # Redis
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: rsentry_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # -------------------------------------------------------------------------
+  # FastAPI Backend
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rsentry_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rsentry:rsentry_pass@postgres:5432/rsentry_db
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:80"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+      - evidence_store:/tmp/rsentry_evidence
+
+  # -------------------------------------------------------------------------
+  # Celery Worker
+  # -------------------------------------------------------------------------
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rsentry_celery
+    restart: unless-stopped
+    command: celery -A backend.workers.tasks.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      DATABASE_URL: postgresql+asyncpg://rsentry:rsentry_pass@postgres:5432/rsentry_db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+
+  # -------------------------------------------------------------------------
+  # React Frontend (production build served via nginx)
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: rsentry_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  evidence_store:
