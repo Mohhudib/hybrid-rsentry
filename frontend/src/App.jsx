@@ -18,11 +18,11 @@ export default function App() {
 
   const renderPage = () => {
     switch (page) {
-      case 'dashboard': return <Overview liveAlert={liveAlert} />;
+      case 'dashboard': return <Overview liveAlert={liveAlert} connected={connected} />;
       case 'alerts':    return <AlertsPage newAlert={liveAlert} />;
       case 'hosts':     return <HostsPage />;
       case 'reports':   return <ReportsPage />;
-      default:          return <Overview liveAlert={liveAlert} />;
+      default:          return <Overview liveAlert={liveAlert} connected={connected} />;
     }
   };
 
