@@ -13,6 +13,7 @@ export default function App() {
   const [liveAlert, setLiveAlert] = useState(null);
   const [liveEvent, setLiveEvent] = useState(null);
   const [liveAi, setLiveAi]       = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleWsMessage = useCallback((msg) => {
     if (msg.type === 'new_alert')     setLiveAlert(msg);
@@ -36,7 +37,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
-      <Sidebar activePage={page} onNavigate={setPage} connected={connected} />
+      <Sidebar activePage={page} onNavigate={setPage} connected={connected} collapsed={!sidebarOpen} onToggle={() => setSidebarOpen(o => !o)} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {renderPage()}
       </div>

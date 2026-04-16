@@ -19,7 +19,7 @@ export default function StatsBar() {
   const fetch = async () => {
     try {
       const [alertsRes, hostsRes] = await Promise.all([
-        getAlerts({ limit: 500 }),
+        getAlerts({ limit: 500, acknowledged: false }),
         getHosts({ limit: 100 }),
       ]);
       const alerts = alertsRes.data;
@@ -42,7 +42,7 @@ export default function StatsBar() {
 
   return (
     <div className="flex gap-4 mb-6">
-      <StatCard label="Total Alerts" value={stats.total} color="text-white" />
+      <StatCard label="Active Alerts" value={stats.total} color="text-white" sub="unacknowledged" />
       <StatCard label="Critical" value={stats.critical} color="text-red-400" sub="needs immediate action" />
       <StatCard label="High" value={stats.high} color="text-orange-400" />
       <StatCard label="Active Hosts" value={stats.hosts} color="text-indigo-400" />

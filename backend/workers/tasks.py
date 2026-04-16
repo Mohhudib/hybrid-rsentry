@@ -93,16 +93,38 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
 
 @celery_app.task(name="analyze_health_ai", bind=True, max_retries=1)
 def analyze_health_ai(self, recent_events: list):
-    """Analyze overall system health using Gemini."""
+    """Analyze overall system health using NVIDIA AI."""
+    from backend.services.ai_analyst import analyze_system_health
+    from backend.routers.ws import publish_to_channel
     try:
-        from backend.services.ai_analyst import analyze_system_health
-        from backend.routers.ws import publish_to_channel
         result = analyze_system_health(recent_events)
         result["type"] = "health_analysis"
-        asyncio.run(publish_to_channel("rsentry:ai", result))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(publish_to_channel("rsentry:ai", result))
+        finally:
+            loop.close()
         logger.info("Health analysis: %s", result.get("status"))
     except Exception as exc:
         logger.error("analyze_health_ai failed: %s", exc)
+        # Always publish a result so the UI doesn't hang on loading
+        fallback = {
+            "type": "health_analysis",
+            "status": "UNKNOWN",
+            "threat_type": "—",
+            "behavior_summary": f"Health analysis failed: {str(exc)[:100]}",
+            "risk_level": "UNKNOWN",
+            "recommendation": "Check NVIDIA_API_KEY and Celery logs.",
+            "confidence": "LOW",
+        }
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(publish_to_channel("rsentry:ai", fallback))
+            loop.close()
+        except Exception:
+            pass
 
 
 @celery_app.task(name="update_host_risk", bind=True, max_retries=3)
