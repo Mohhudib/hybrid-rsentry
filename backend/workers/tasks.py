@@ -118,6 +118,30 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
         raise self.retry(exc=exc, countdown=5)
 
 
+@celery_app.task(name="publish_markov_analysis", bind=True, max_retries=1)
+def publish_markov_analysis(self, event_id: str):
+    """Publish a pre-built analysis for Markov chain reposition events — no NVIDIA API call needed."""
+    try:
+        from backend.routers.ws import publish_to_channel
+        result = {
+            "type": "ai_analysis",
+            "event_id": event_id,
+            "threat_type": "Markov Chain — Adaptive Canary Repositioning",
+            "technique": "Canary File Relocation",
+            "language_or_tool": "Internal — Markov Chain Module",
+            "behavior_summary": "The Markov chain adaptive repositioner moved canary files to predicted hotspot directories based on observed access patterns. This is a normal internal defensive operation, not a threat.",
+            "risk_level": "LOW",
+            "recommendation": "No action required. The system is proactively adapting canary positions.",
+            "confidence": "HIGH",
+            "markov_action": True,
+        }
+        asyncio.run(publish_to_channel("rsentry:ai", result))
+        logger.info("Published Markov analysis for event %s", event_id)
+    except Exception as exc:
+        logger.error("publish_markov_analysis failed: %s", exc)
+        raise self.retry(exc=exc, countdown=2)
+
+
 @celery_app.task(name="analyze_health_ai", bind=True, max_retries=1)
 def analyze_health_ai(self, recent_events: list):
     """Analyze overall system health using NVIDIA AI."""
