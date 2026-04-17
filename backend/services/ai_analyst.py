@@ -1,7 +1,11 @@
 """
-ai_analyst.py — NVIDIA AI analysis for suspicious events.
-Uses meta/llama-3.1-70b-instruct via NVIDIA OpenAI-compatible API.
-Rate-limited to 3 seconds between API calls using Redis.
+ai_analyst.py — NVIDIA AI analysis for suspicious events and alerts.
+
+Two separate API keys:
+  NVIDIA_API_KEY        — used for live event analysis (AI Analyst section)
+  NVIDIA_API_KEY_ALERTS — used for on-demand alert analysis (Alerts section)
+
+Each key has its own Redis rate limit key so they don't block each other.
 """
 import json
 import logging
@@ -15,47 +19,62 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "meta/llama-3.1-70b-instruct"
-_RATE_KEY = "rsentry:nvidia_last_call"
-_RATE_DELAY = 3.0  # seconds between NVIDIA API calls
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+_RATE_DELAY = 3.0  # seconds between calls per key
 
-_client = None
+# Rate limit Redis keys — one per API key so they're fully independent
+_RATE_KEY_EVENTS = "rsentry:nvidia_last_call_events"
+_RATE_KEY_ALERTS = "rsentry:nvidia_last_call_alerts"
+
+_client_events = None   # for live event analysis
+_client_alerts = None   # for alert analysis
 _redis = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        api_key = os.getenv("NVIDIA_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("NVIDIA_API_KEY not set in environment")
-        _client = OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=api_key,
-        )
-    return _client
 
 
 def _get_redis():
     global _redis
     if _redis is None:
-        _redis = redis_lib.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+        _redis = redis_lib.from_url(
+            os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+            decode_responses=True,
+        )
     return _redis
 
 
-def _nvidia_rate_limit():
-    """Block until at least 3 seconds have passed since the last NVIDIA API call."""
+def _get_client_events():
+    global _client_events
+    if _client_events is None:
+        key = os.getenv("NVIDIA_API_KEY", "")
+        if not key:
+            raise RuntimeError("NVIDIA_API_KEY not set in environment")
+        _client_events = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
+    return _client_events
+
+
+def _get_client_alerts():
+    global _client_alerts
+    if _client_alerts is None:
+        key = os.getenv("NVIDIA_API_KEY_ALERTS", os.getenv("NVIDIA_API_KEY", ""))
+        if not key:
+            raise RuntimeError("NVIDIA_API_KEY_ALERTS not set in environment")
+        _client_alerts = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
+    return _client_alerts
+
+
+def _rate_limit(redis_key: str):
+    """Block until at least 3 seconds have passed since the last call on this key."""
     r = _get_redis()
     while True:
-        last = r.get(_RATE_KEY)
+        last = r.get(redis_key)
         if not last:
             break
         elapsed = time.time() - float(last)
         if elapsed >= _RATE_DELAY:
             break
         wait = _RATE_DELAY - elapsed
-        logger.debug("NVIDIA rate limit: waiting %.1fs", wait)
+        logger.debug("NVIDIA rate limit (%s): waiting %.1fs", redis_key, wait)
         time.sleep(wait)
-    r.set(_RATE_KEY, str(time.time()), ex=30)
+    r.set(redis_key, str(time.time()), ex=30)
 
 
 SYSTEM_PROMPT = """You are a cybersecurity AI analyst embedded in a ransomware detection system called Hybrid R-Sentry.
@@ -96,7 +115,7 @@ def build_prompt(event: dict) -> str:
     if sub_type == "MARKOV_REPOSITION":
         lines.append("CONTEXT: This is an INTERNAL SYSTEM EVENT. The Markov chain module repositioned canary files to new hotspot locations. This is NOT a threat — classify as Benign with LOW risk.")
     if sub_type == "moved":
-        lines.append("CONTEXT: A canary file was moved. This may be the internal Markov chain adaptive repositioner moving canary files to new hotspot locations (a normal defensive operation), OR a real attacker renaming/moving the canary to hide activity. Check if pid==0 and process==unknown — if so, it is the Markov chain.")
+        lines.append("CONTEXT: A canary file was moved. This may be the internal Markov chain adaptive repositioner (normal defensive operation) OR a real attacker. If pid==0 and process==unknown it is the Markov chain.")
     if ancestors:
         lines.append(f"Process ancestors: {' → '.join(str(a) for a in ancestors[:5])}")
     if reasons:
@@ -107,65 +126,62 @@ def build_prompt(event: dict) -> str:
     return "Analyze this detection event:\n\n" + "\n".join(lines)
 
 
+def _call_nvidia(client, prompt: str) -> dict:
+    """Shared NVIDIA API call. Returns parsed JSON dict."""
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+        max_tokens=500,
+    )
+    text = response.choices[0].message.content.strip()
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        return json.loads(match.group())
+    return json.loads(text)
+
+
 def analyze_event(event: dict) -> dict:
     """
-    Call NVIDIA to analyze a detection event.
-    Respects 3-second rate limit via Redis.
-    Returns dict with analysis, or {"analysis_failed": True} on error — caller must not publish that.
+    Analyze a live detection event using NVIDIA_API_KEY (AI Analyst section).
+    Rate-limited independently from alert analysis.
+    Returns {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
-        _nvidia_rate_limit()
-        client = _get_client()
-        prompt = build_prompt(event)
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            max_tokens=500,
-        )
-        text = response.choices[0].message.content.strip()
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        return json.loads(text)
-
+        _rate_limit(_RATE_KEY_EVENTS)
+        result = _call_nvidia(_get_client_events(), build_prompt(event))
+        return result
     except Exception as exc:
-        logger.warning("NVIDIA AI analysis failed: %s", exc)
+        logger.warning("NVIDIA event analysis failed: %s", exc)
         return {"analysis_failed": True, "reason": str(exc)[:120]}
 
 
-def analyze_alert(alert: dict) -> dict:
+def analyze_alert(event: dict) -> dict:
     """
-    Analyze an alert directly (used when manually triggering AI from the Alerts page).
-    Builds a prompt from alert fields and calls NVIDIA.
-    Returns dict with analysis, or {"analysis_failed": True} on error.
+    Analyze an alert on-demand using NVIDIA_API_KEY_ALERTS (Alerts section).
+    Rate-limited independently from live event analysis — both keys run in parallel.
+    Returns {"analysis_failed": True} on error — caller must not publish that.
     """
-    event = {
-        "event_type": alert.get("event_type", "UNKNOWN"),
-        "severity": alert.get("severity", "UNKNOWN"),
-        "host_id": alert.get("host_id", "unknown"),
-        "file_path": alert.get("file_path"),
-        "process_name": alert.get("process_name"),
-        "pid": alert.get("pid", 0),
-        "entropy_delta": alert.get("entropy_delta", 0),
-        "lineage_score": alert.get("lineage_score", 0),
-        "canary_hit": alert.get("canary_hit", False),
-        "details": alert.get("details") or {},
-    }
-    return analyze_event(event)
+    try:
+        _rate_limit(_RATE_KEY_ALERTS)
+        result = _call_nvidia(_get_client_alerts(), build_prompt(event))
+        return result
+    except Exception as exc:
+        logger.warning("NVIDIA alert analysis failed: %s", exc)
+        return {"analysis_failed": True, "reason": str(exc)[:120]}
 
 
 def analyze_system_health(recent_events: list[dict]) -> dict:
     """
-    Analyze overall system behavior stability from recent events.
-    Respects 3-second rate limit via Redis.
+    Analyze overall system health using NVIDIA_API_KEY (AI Analyst section).
+    Rate-limited on the same key as live events.
     """
     try:
-        _nvidia_rate_limit()
-        client = _get_client()
+        _rate_limit(_RATE_KEY_EVENTS)
+        client = _get_client_events()
 
         counts = {}
         for e in recent_events:
