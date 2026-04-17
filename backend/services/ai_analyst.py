@@ -81,9 +81,9 @@ def build_prompt(event: dict) -> str:
 
 def analyze_event(event: dict) -> dict:
     """
-    Call NVIDIA Nemotron to analyze a detection event.
+    Call NVIDIA to analyze a detection event.
     Returns a dict with threat classification and recommendations.
-    Returns a fallback dict if the API call fails.
+    Returns a dict with analysis_failed=True if the API call fails — caller must not publish this.
     """
     try:
         client = _get_client()
@@ -107,15 +107,7 @@ def analyze_event(event: dict) -> dict:
 
     except Exception as exc:
         logger.warning("NVIDIA AI analysis failed: %s", exc)
-        return {
-            "threat_type": "Analysis unavailable",
-            "technique": "—",
-            "language_or_tool": "—",
-            "behavior_summary": f"AI analysis could not be completed: {str(exc)[:80]}",
-            "risk_level": event.get("severity", "UNKNOWN"),
-            "recommendation": "Review event manually.",
-            "confidence": "LOW",
-        }
+        return {"analysis_failed": True, "reason": str(exc)[:120]}
 
 
 def analyze_system_health(recent_events: list[dict]) -> dict:
