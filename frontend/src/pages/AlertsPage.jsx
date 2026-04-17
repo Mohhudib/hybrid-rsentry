@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { getAlerts, acknowledgeAlert, analyzeAlert } from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -16,13 +16,23 @@ const SEVERITY_BORDER = {
   LOW: 'border-l-blue-400',
 };
 
-export default function AlertsPage({ newAlert }) {
+const AI_RISK_COLORS = {
+  CRITICAL: 'text-red-400 bg-red-900/30 border-red-700',
+  HIGH:     'text-orange-400 bg-orange-900/30 border-orange-700',
+  MEDIUM:   'text-yellow-400 bg-yellow-900/20 border-yellow-700/50',
+  LOW:      'text-green-400 bg-green-900/20 border-green-700/50',
+  UNKNOWN:  'text-gray-400 bg-gray-800 border-gray-700',
+};
+
+export default function AlertsPage({ newAlert, liveAiResult }) {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('ALL');
   const [showAcked, setShowAcked] = useState(false);
   const [analyzing, setAnalyzing] = useState(new Set());
   const [analyzed, setAnalyzed] = useState(new Set());
+  // AI analysis results keyed by event_id — shows inline on the alert row
+  const [aiResults, setAiResults] = useState({});
 
   const fetchAlerts = useCallback(async () => {
     try {
@@ -41,6 +51,7 @@ export default function AlertsPage({ newAlert }) {
     return () => clearInterval(t);
   }, [fetchAlerts]);
 
+  // Inject live WebSocket alerts immediately
   useEffect(() => {
     if (!newAlert) return;
     setAlerts((prev) => {
@@ -48,6 +59,19 @@ export default function AlertsPage({ newAlert }) {
       return [{ id: newAlert.alert_id, host_id: newAlert.host_id, severity: newAlert.severity, acknowledged: false, created_at: new Date().toISOString(), _live: true }, ...prev];
     });
   }, [newAlert]);
+
+  // When an AI result arrives via WebSocket, store it and refresh alerts immediately
+  // (catches auto-acks that happened on the backend)
+  const prevAiResultRef = useRef(null);
+  useEffect(() => {
+    if (!liveAiResult?.event_id) return;
+    if (prevAiResultRef.current === liveAiResult._receivedAt) return;
+    prevAiResultRef.current = liveAiResult._receivedAt;
+    setAiResults(prev => ({ ...prev, [liveAiResult.event_id]: liveAiResult }));
+    // Refresh after a short delay to give the backend time to commit the auto-ack
+    const t = setTimeout(fetchAlerts, 1500);
+    return () => clearTimeout(t);
+  }, [liveAiResult, fetchAlerts]);
 
   const handleAck = async (id) => {
     try {
@@ -62,7 +86,6 @@ export default function AlertsPage({ newAlert }) {
     try {
       await analyzeAlert(id);
       setAnalyzed(prev => new Set([...prev, id]));
-      // Result arrives via WebSocket → auto-ack if false positive
     } catch (err) {
       console.error(err);
     } finally {
@@ -70,7 +93,6 @@ export default function AlertsPage({ newAlert }) {
     }
   };
 
-  // Active (unacked) alert counts — matches dashboard StatsBar
   const activeAlerts = alerts.filter(a => !a.acknowledged);
   const counts = activeAlerts.reduce((acc, a) => {
     acc[a.severity] = (acc[a.severity] || 0) + 1;
@@ -124,47 +146,68 @@ export default function AlertsPage({ newAlert }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((alert) => (
-            <div
-              key={alert.id}
-              className={`bg-gray-900 border border-gray-800 border-l-4 ${SEVERITY_BORDER[alert.severity]} rounded-xl px-4 py-3 flex items-center gap-4 ${alert.acknowledged ? 'opacity-50' : ''}`}
-            >
-              <span className={`text-xs font-bold px-2 py-1 rounded shrink-0 ${SEVERITY_COLORS[alert.severity]}`}>
-                {alert.severity}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-mono">{alert.host_id}</p>
-                <p className="text-gray-500 text-xs font-mono mt-0.5">ID: {alert.id}</p>
-              </div>
-              <p className="text-gray-500 text-xs shrink-0">
-                {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
-              </p>
-              {alert.acknowledged ? (
-                <span className="text-xs text-green-500 shrink-0">Acknowledged</span>
-              ) : (
-                <div className="flex items-center gap-2 shrink-0">
-                  {analyzed.has(alert.id) ? (
-                    <span className="text-xs text-indigo-400">AI queued ✓</span>
+          {filtered.map((alert) => {
+            const aiResult = aiResults[alert.event_id];
+            const aiColor = AI_RISK_COLORS[aiResult?.risk_level] || AI_RISK_COLORS.UNKNOWN;
+            return (
+              <div
+                key={alert.id}
+                className={`bg-gray-900 border border-gray-800 border-l-4 ${SEVERITY_BORDER[alert.severity]} rounded-xl px-4 py-3 ${alert.acknowledged ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-center gap-4">
+                  <span className={`text-xs font-bold px-2 py-1 rounded shrink-0 ${SEVERITY_COLORS[alert.severity]}`}>
+                    {alert.severity}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-mono">{alert.host_id}</p>
+                    <p className="text-gray-500 text-xs font-mono mt-0.5">ID: {alert.id}</p>
+                  </div>
+                  <p className="text-gray-500 text-xs shrink-0">
+                    {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
+                  </p>
+                  {alert.acknowledged ? (
+                    <span className="text-xs text-green-500 shrink-0">Acknowledged</span>
                   ) : (
-                    <button
-                      onClick={() => handleAnalyze(alert.id)}
-                      disabled={analyzing.has(alert.id)}
-                      title="Send to NVIDIA AI — auto-acknowledges if false positive"
-                      className="text-xs bg-indigo-900/50 hover:bg-indigo-700 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 border border-indigo-700/50"
-                    >
-                      {analyzing.has(alert.id) ? '…' : 'AI Analyze'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {analyzed.has(alert.id) && !aiResult ? (
+                        <span className="text-xs text-indigo-400">AI queued ✓</span>
+                      ) : !analyzed.has(alert.id) ? (
+                        <button
+                          onClick={() => handleAnalyze(alert.id)}
+                          disabled={analyzing.has(alert.id)}
+                          title="Send to NVIDIA AI — auto-acknowledges if false positive"
+                          className="text-xs bg-indigo-900/50 hover:bg-indigo-700 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 border border-indigo-700/50"
+                        >
+                          {analyzing.has(alert.id) ? '…' : 'AI Analyze'}
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => handleAck(alert.id)}
+                        className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        ACK
+                      </button>
+                    </div>
                   )}
-                  <button
-                    onClick={() => handleAck(alert.id)}
-                    className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    ACK
-                  </button>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {/* AI result row — shown once analysis arrives */}
+                {aiResult && (
+                  <div className={`mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${aiColor}`}>
+                    <span className="font-semibold shrink-0">AI:</span>
+                    <span className="font-bold">{aiResult.threat_type}</span>
+                    <span className="opacity-70">·</span>
+                    <span>{aiResult.risk_level} risk</span>
+                    <span className="opacity-70">·</span>
+                    <span className="opacity-80 truncate">{aiResult.recommendation}</span>
+                    {(aiResult.threat_type === 'Benign' || aiResult.risk_level === 'LOW') && (
+                      <span className="ml-auto shrink-0 text-green-400 font-semibold">Auto-acknowledging…</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
