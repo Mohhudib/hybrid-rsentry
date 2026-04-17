@@ -23,6 +23,33 @@ const STATUS_INFO = {
 
 const CONFIDENCE_COLORS = { HIGH: 'text-green-400', MEDIUM: 'text-yellow-400', LOW: 'text-gray-500' };
 
+// ─── Pending card (shown while AI is still processing) ──────────────────────
+
+function PendingCard({ event }) {
+  const severityColor = {
+    CRITICAL: 'text-red-400 border-red-700 bg-red-900/20',
+    HIGH:     'text-orange-400 border-orange-700 bg-orange-900/20',
+    MEDIUM:   'text-yellow-400 border-yellow-700/50 bg-yellow-900/10',
+  }[event.severity] || 'text-gray-400 border-gray-700 bg-gray-800';
+
+  return (
+    <div className={`border rounded-xl px-4 py-3 flex items-center gap-3 ${severityColor}`}>
+      {/* Spinner */}
+      <svg className="animate-spin h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+      </svg>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">AI Analyst is processing this event…</p>
+        <p className="text-xs opacity-60 truncate mt-0.5">
+          {event.event_type} — {event.file_path || event.process_name || event.host_id}
+        </p>
+      </div>
+      <span className="text-xs font-bold opacity-70 shrink-0">{event.severity}</span>
+    </div>
+  );
+}
+
 // ─── Analysis card ─────────────────────────────────────────────────────────
 
 function AnalysisCard({ analysis, isNew, timestamp }) {
@@ -44,6 +71,11 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
                 NEW
               </span>
             )}
+            {analysis.markov_action && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-800 text-blue-200 font-semibold">
+                Markov Chain
+              </span>
+            )}
             <span className={`text-xs ${CONFIDENCE_COLORS[analysis.confidence] || 'text-gray-500'}`}>
               {analysis.confidence} confidence
             </span>
@@ -63,6 +95,12 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
       {/* Expanded details */}
       {expanded && (
         <div className="px-4 py-3 bg-gray-900 border-t border-gray-800 space-y-3">
+          {analysis.markov_action && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-900/20 border border-blue-700/40">
+              <span className="text-blue-300 text-xs font-semibold">Action taken by:</span>
+              <span className="text-blue-200 text-xs">Markov Chain Adaptive Repositioner — internal defensive system</span>
+            </div>
+          )}
           <div>
             <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Behavior Analysis</p>
             <p className="text-gray-200 text-sm leading-relaxed">{analysis.behavior_summary}</p>
@@ -126,7 +164,7 @@ function HealthCard({ health }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 
-export default function AIAnalystPage({ connected, analyses, health, newIds, timestamps, onHealthUpdate }) {
+export default function AIAnalystPage({ connected, analyses, health, newIds, timestamps, pendingEvents, onHealthUpdate }) {
   const [tab, setTab] = useState('events');
   const [healthLoading, setHealthLoading] = useState(false);
   const [autoHealth, setAutoHealth] = useState(false);
@@ -148,7 +186,12 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     return () => clearInterval(t);
   }, [autoHealth, runHealthCheck]);
 
+  // Pending events that don't yet have a completed analysis
+  const completedIds = new Set((analyses || []).map(a => a.event_id));
+  const pendingList = Object.values(pendingEvents || {}).filter(e => !completedIds.has(e.event_id));
+
   const newCount = (analyses || []).filter(a => newIds.has(a.event_id)).length;
+  const pendingCount = pendingList.length;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6">
@@ -183,6 +226,9 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
           }`}
         >
           Event Analysis
+          {pendingCount > 0 && (
+            <span className="bg-yellow-500 text-black text-xs px-1.5 py-0.5 rounded-full font-bold">{pendingCount}</span>
+          )}
           {newCount > 0 && (
             <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{newCount}</span>
           )}
@@ -201,7 +247,7 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
       <div className="flex-1 overflow-y-auto">
         {tab === 'events' && (
           <div>
-            {(analyses || []).length === 0 ? (
+            {pendingList.length === 0 && (analyses || []).length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center">
                 <p style={{ fontSize: 40 }} className="mb-3">🤖</p>
                 <p className="text-gray-400 text-sm">Waiting for HIGH, MEDIUM or CRITICAL events…</p>
@@ -211,6 +257,11 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
               </div>
             ) : (
               <div className="space-y-3">
+                {/* Pending cards at the top */}
+                {pendingList.map(e => (
+                  <PendingCard key={e.event_id} event={e} />
+                ))}
+                {/* Completed analyses */}
                 {(analyses || []).map((a, i) => (
                   <AnalysisCard
                     key={a.event_id || i}
