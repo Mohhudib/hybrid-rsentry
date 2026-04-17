@@ -1,20 +1,25 @@
 """
 ai_analyst.py — NVIDIA AI analysis for suspicious events.
-Uses nvidia/llama-3.1-nemotron-70b-instruct via OpenAI-compatible API.
-Classifies threats, detects techniques/languages, explains behavior.
+Uses meta/llama-3.1-70b-instruct via NVIDIA OpenAI-compatible API.
+Rate-limited to 3 seconds between API calls using Redis.
 """
 import json
 import logging
 import os
 import re
+import time
 
+import redis as redis_lib
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "meta/llama-3.1-70b-instruct"
+_RATE_KEY = "rsentry:nvidia_last_call"
+_RATE_DELAY = 3.0  # seconds between NVIDIA API calls
 
 _client = None
+_redis = None
 
 
 def _get_client():
@@ -28,6 +33,29 @@ def _get_client():
             api_key=api_key,
         )
     return _client
+
+
+def _get_redis():
+    global _redis
+    if _redis is None:
+        _redis = redis_lib.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"), decode_responses=True)
+    return _redis
+
+
+def _nvidia_rate_limit():
+    """Block until at least 3 seconds have passed since the last NVIDIA API call."""
+    r = _get_redis()
+    while True:
+        last = r.get(_RATE_KEY)
+        if not last:
+            break
+        elapsed = time.time() - float(last)
+        if elapsed >= _RATE_DELAY:
+            break
+        wait = _RATE_DELAY - elapsed
+        logger.debug("NVIDIA rate limit: waiting %.1fs", wait)
+        time.sleep(wait)
+    r.set(_RATE_KEY, str(time.time()), ex=30)
 
 
 SYSTEM_PROMPT = """You are a cybersecurity AI analyst embedded in a ransomware detection system called Hybrid R-Sentry.
@@ -82,10 +110,11 @@ def build_prompt(event: dict) -> str:
 def analyze_event(event: dict) -> dict:
     """
     Call NVIDIA to analyze a detection event.
-    Returns a dict with threat classification and recommendations.
-    Returns a dict with analysis_failed=True if the API call fails — caller must not publish this.
+    Respects 3-second rate limit via Redis.
+    Returns dict with analysis, or {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
+        _nvidia_rate_limit()
         client = _get_client()
         prompt = build_prompt(event)
         response = client.chat.completions.create(
@@ -98,8 +127,6 @@ def analyze_event(event: dict) -> dict:
             max_tokens=500,
         )
         text = response.choices[0].message.content.strip()
-
-        # Extract JSON from response
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group())
@@ -110,12 +137,34 @@ def analyze_event(event: dict) -> dict:
         return {"analysis_failed": True, "reason": str(exc)[:120]}
 
 
+def analyze_alert(alert: dict) -> dict:
+    """
+    Analyze an alert directly (used when manually triggering AI from the Alerts page).
+    Builds a prompt from alert fields and calls NVIDIA.
+    Returns dict with analysis, or {"analysis_failed": True} on error.
+    """
+    event = {
+        "event_type": alert.get("event_type", "UNKNOWN"),
+        "severity": alert.get("severity", "UNKNOWN"),
+        "host_id": alert.get("host_id", "unknown"),
+        "file_path": alert.get("file_path"),
+        "process_name": alert.get("process_name"),
+        "pid": alert.get("pid", 0),
+        "entropy_delta": alert.get("entropy_delta", 0),
+        "lineage_score": alert.get("lineage_score", 0),
+        "canary_hit": alert.get("canary_hit", False),
+        "details": alert.get("details") or {},
+    }
+    return analyze_event(event)
+
+
 def analyze_system_health(recent_events: list[dict]) -> dict:
     """
     Analyze overall system behavior stability from recent events.
-    Returns health assessment.
+    Respects 3-second rate limit via Redis.
     """
     try:
+        _nvidia_rate_limit()
         client = _get_client()
 
         counts = {}
