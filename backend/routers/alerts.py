@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.database import get_db
 from backend.models.schemas import (
-    Alert, Evidence, EvidenceCreate, EvidenceResponse,
+    Alert, Event, Evidence, EvidenceCreate, EvidenceResponse,
     AlertResponse, Severity,
 )
 
@@ -58,6 +58,49 @@ async def acknowledge_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(alert)
     return alert
+
+
+@router.post("/{alert_id}/analyze")
+async def analyze_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Trigger on-demand AI analysis for an alert. Auto-acknowledges if AI says Benign/LOW."""
+    alert_result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = alert_result.scalar_one_or_none()
+    if alert is None:
+        raise HTTPException(404, "Alert not found")
+
+    # Load the linked event for full context
+    event_data: dict = {
+        "event_type": "UNKNOWN",
+        "severity": alert.severity.value,
+        "host_id": alert.host_id,
+        "file_path": None,
+        "process_name": None,
+        "pid": 0,
+        "entropy_delta": 0,
+        "lineage_score": 0,
+        "canary_hit": False,
+        "details": {},
+    }
+    if alert.event_id:
+        ev_result = await db.execute(select(Event).where(Event.id == alert.event_id))
+        ev = ev_result.scalar_one_or_none()
+        if ev:
+            event_data = {
+                "event_type": ev.event_type.value,
+                "severity": ev.severity.value,
+                "host_id": ev.host_id,
+                "file_path": ev.file_path,
+                "process_name": ev.process_name,
+                "pid": ev.pid,
+                "entropy_delta": ev.entropy_delta or 0,
+                "lineage_score": ev.lineage_score or 0,
+                "canary_hit": ev.canary_hit or False,
+                "details": ev.details or {},
+            }
+
+    from backend.workers.tasks import analyze_event_ai
+    analyze_event_ai.delay(str(alert.event_id or alert_id), event_data)
+    return {"queued": True, "alert_id": str(alert_id)}
 
 
 @router.get("/{alert_id}/evidence", response_model=list[EvidenceResponse])
