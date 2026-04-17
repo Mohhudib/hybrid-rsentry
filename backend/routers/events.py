@@ -15,7 +15,10 @@ from backend.models.schemas import (
     EventCreate, EventResponse, AlertResponse,
     Severity, EventType,
 )
-from backend.workers.tasks import push_alert_ws, push_event_ws, update_host_risk, analyze_event_ai, auto_ack_containment
+from backend.workers.tasks import (
+    push_alert_ws, push_event_ws, update_host_risk,
+    analyze_event_ai, auto_ack_containment, publish_markov_analysis,
+)
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -35,9 +38,16 @@ async def _upsert_host(db: AsyncSession, host_id: str) -> Host:
 
 @router.post("", response_model=EventResponse, status_code=201)
 async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db)):
-    """Receive an event from the agent and persist it. Generates alerts for HIGH/CRITICAL."""
+    """Receive an event from the agent and persist it. Generates alerts for HIGH/CRITICAL/MEDIUM real threats."""
 
     await _upsert_host(db, payload.host_id)
+
+    # Detect internal Markov chain events before creating alerts
+    sub_type = (payload.details or {}).get("sub_type", "")
+    is_internal = (
+        sub_type == "MARKOV_REPOSITION" or
+        (sub_type == "moved" and payload.pid == 0)
+    )
 
     event = Event(
         host_id=payload.host_id,
@@ -55,9 +65,9 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
     db.add(event)
     await db.flush()
 
-    # Auto-generate alert for HIGH/CRITICAL events
+    # Only create alerts for real threats — skip internal Markov repositioning events
     alert: Optional[Alert] = None
-    if payload.severity in ALERT_SEVERITIES:
+    if payload.severity in ALERT_SEVERITIES and not is_internal:
         alert = Alert(
             event_id=event.id,
             host_id=payload.host_id,
@@ -76,35 +86,25 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
         payload.canary_hit, payload.process_name, payload.details,
     )
 
-    # Async tasks (fire-and-forget)
     if alert:
         push_alert_ws.delay(str(alert.id), payload.host_id,
                             payload.severity.value, payload.event_type.value)
         update_host_risk.delay(payload.host_id)
-        # AI threat analysis for HIGH/CRITICAL events — skip internal system events
-        sub_type = (payload.details or {}).get("sub_type", "")
-        # Skip AI for internal system events:
-        # - MARKOV_REPOSITION = Markov chain sending its heartbeat
-        # - moved + pid==0 = Markov chain physically moving a canary file (watchdog on_moved)
-        is_internal = (
-            sub_type == "MARKOV_REPOSITION" or
-            (sub_type == "moved" and payload.pid == 0)
-        )
-        if is_internal:
-            pass  # Not a threat — Markov chain repositioning canary files
-        else:
-            analyze_event_ai.delay(str(event.id), {
-                "event_type": payload.event_type.value,
-                "severity": payload.severity.value,
-                "host_id": payload.host_id,
-                "file_path": payload.file_path,
-                "process_name": payload.process_name,
-                "pid": payload.pid,
-                "entropy_delta": payload.entropy_delta,
-                "lineage_score": payload.lineage_score,
-                "canary_hit": payload.canary_hit,
-                "details": payload.details,
-            })
+        analyze_event_ai.delay(str(event.id), {
+            "event_type": payload.event_type.value,
+            "severity": payload.severity.value,
+            "host_id": payload.host_id,
+            "file_path": payload.file_path,
+            "process_name": payload.process_name,
+            "pid": payload.pid,
+            "entropy_delta": payload.entropy_delta,
+            "lineage_score": payload.lineage_score,
+            "canary_hit": payload.canary_hit,
+            "details": payload.details,
+        })
+    elif is_internal and payload.severity in ALERT_SEVERITIES:
+        # Markov event that would have been an alert — publish pre-built analysis to AI panel
+        publish_markov_analysis.delay(str(event.id))
 
     # When containment completes, auto-acknowledge all CRITICAL alerts for this host
     if payload.event_type == EventType.CONTAINMENT_COMPLETE:
