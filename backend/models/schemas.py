@@ -132,9 +132,9 @@ class EventResponse(BaseModel):
     timestamp: datetime
     event_type: EventType
     severity: Severity
-    pid: int
-    process_name: str
-    file_path: str
+    pid: Optional[int] = None
+    process_name: Optional[str] = None
+    file_path: Optional[str] = None
     lineage_score: float
     entropy_delta: float
     canary_hit: bool
