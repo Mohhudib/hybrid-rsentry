@@ -23,7 +23,64 @@ const STATUS_INFO = {
 
 const CONFIDENCE_COLORS = { HIGH: 'text-green-400', MEDIUM: 'text-yellow-400', LOW: 'text-gray-500' };
 
-// ─── Pending card (shown while AI is still processing) ──────────────────────
+const HEALTH_STEPS = [
+  { label: 'Collecting recent events from endpoint…',  duration: 1200 },
+  { label: 'Sending event data to NVIDIA AI…',         duration: 2500 },
+  { label: 'AI is analyzing system behavior…',         duration: 4000 },
+  { label: 'Finalizing health report…',                duration: 2000 },
+];
+
+// ─── Health check progress card ────────────────────────────────────────────
+
+function HealthProgressCard({ step, done }) {
+  const pct = done ? 100 : Math.round(((step + 1) / HEALTH_STEPS.length) * 100);
+
+  return (
+    <div className="bg-gray-900 border border-indigo-800/50 rounded-xl p-5 space-y-4">
+      <div className="flex items-center gap-3">
+        <svg className="animate-spin h-5 w-5 text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <p className="text-indigo-300 text-sm font-medium">
+          {done ? 'Analysis complete — loading result…' : HEALTH_STEPS[step]?.label}
+        </p>
+      </div>
+
+      {/* Progress bar */}
+      <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+        <div
+          className="h-2 rounded-full bg-indigo-500 transition-all duration-700 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      {/* Step indicators */}
+      <div className="flex items-center justify-between gap-2">
+        {HEALTH_STEPS.map((s, i) => (
+          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+            <div className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+              done || i < step
+                ? 'bg-indigo-500'
+                : i === step
+                  ? 'bg-indigo-400 ring-2 ring-indigo-400/40 animate-pulse'
+                  : 'bg-gray-700'
+            }`} />
+            <p className={`text-center text-[10px] leading-tight hidden sm:block ${
+              done || i < step ? 'text-indigo-400' : i === step ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              {['Events', 'Upload', 'Analysis', 'Report'][i]}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-gray-600 text-xs text-right">{pct}%</p>
+    </div>
+  );
+}
+
+// ─── Pending card (shown while AI is still processing an event) ─────────────
 
 function PendingCard({ event }) {
   const severityColor = {
@@ -34,7 +91,6 @@ function PendingCard({ event }) {
 
   return (
     <div className={`border rounded-xl px-4 py-3 flex items-center gap-3 ${severityColor}`}>
-      {/* Spinner */}
       <svg className="animate-spin h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none">
         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
@@ -50,7 +106,7 @@ function PendingCard({ event }) {
   );
 }
 
-// ─── Analysis card ─────────────────────────────────────────────────────────
+// ─── Analysis card ──────────────────────────────────────────────────────────
 
 function AnalysisCard({ analysis, isNew, timestamp }) {
   const [expanded, setExpanded] = useState(isNew);
@@ -58,7 +114,6 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-all ${risk.border} ${isNew ? 'ring-1 ring-indigo-500' : ''}`}>
-      {/* Card header — always visible */}
       <div
         className={`flex items-center gap-3 px-4 py-3 cursor-pointer ${risk.bg} hover:brightness-110 transition-all`}
         onClick={() => setExpanded(e => !e)}
@@ -67,14 +122,10 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-bold ${risk.text}`}>{analysis.threat_type}</span>
             {isNew && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-bold animate-pulse">
-                NEW
-              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-bold animate-pulse">NEW</span>
             )}
             {analysis.markov_action && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-800 text-blue-200 font-semibold">
-                Markov Chain
-              </span>
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-800 text-blue-200 font-semibold">Markov Chain</span>
             )}
             <span className={`text-xs ${CONFIDENCE_COLORS[analysis.confidence] || 'text-gray-500'}`}>
               {analysis.confidence} confidence
@@ -84,15 +135,12 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
         </div>
         <div className="text-right shrink-0">
           {timestamp && (
-            <p className="text-gray-500 text-xs">
-              {formatDistanceToNow(new Date(timestamp), { addSuffix: true })}
-            </p>
+            <p className="text-gray-500 text-xs">{formatDistanceToNow(new Date(timestamp), { addSuffix: true })}</p>
           )}
           <span className="text-gray-600 text-xs">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
 
-      {/* Expanded details */}
       {expanded && (
         <div className="px-4 py-3 bg-gray-900 border-t border-gray-800 space-y-3">
           {analysis.markov_action && (
@@ -126,7 +174,7 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
   );
 }
 
-// ─── Health status card ────────────────────────────────────────────────────
+// ─── Health status card ─────────────────────────────────────────────────────
 
 function HealthCard({ health }) {
   const info = STATUS_INFO[health.status] || STATUS_INFO.UNKNOWN;
@@ -162,21 +210,69 @@ function HealthCard({ health }) {
   );
 }
 
-// ─── Main page ─────────────────────────────────────────────────────────────
+// ─── Main page ──────────────────────────────────────────────────────────────
 
 export default function AIAnalystPage({ connected, analyses, health, newIds, timestamps, pendingEvents, onHealthUpdate }) {
   const [tab, setTab] = useState('events');
-  const [healthLoading, setHealthLoading] = useState(false);
   const [autoHealth, setAutoHealth] = useState(false);
 
+  // Health check progress state
+  const [healthPending, setHealthPending] = useState(false);
+  const [healthStep, setHealthStep] = useState(0);
+  const [healthDone, setHealthDone] = useState(false);
+  const healthStartedAt = useRef(null);
+  const stepTimers = useRef([]);
+
+  const clearStepTimers = () => {
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
+  };
+
   const runHealthCheck = useCallback(async () => {
-    setHealthLoading(true);
+    if (healthPending) return;
+    setHealthPending(true);
+    setHealthStep(0);
+    setHealthDone(false);
+    healthStartedAt.current = Date.now();
+    clearStepTimers();
+
+    // Advance steps on a timer to show visual progress
+    let elapsed = 0;
+    HEALTH_STEPS.forEach((s, i) => {
+      if (i === 0) return; // step 0 is immediate
+      elapsed += HEALTH_STEPS[i - 1].duration;
+      const t = setTimeout(() => setHealthStep(i), elapsed);
+      stepTimers.current.push(t);
+    });
+
     try {
       const { data: events } = await getEvents({ limit: 100 });
       await axios.post(`${API_URL}/api/ai/health`, { events });
-    } catch (err) { console.error(err); }
-    finally { setHealthLoading(false); }
-  }, []);
+      // POST returned — Celery task queued, now waiting for WebSocket result
+    } catch (err) {
+      console.error(err);
+      clearStepTimers();
+      setHealthPending(false);
+    }
+  }, [healthPending]);
+
+  // When health prop updates with a new timestamp, the WS result arrived — finish progress
+  const prevHealthTs = useRef(null);
+  useEffect(() => {
+    if (!healthPending) return;
+    if (!health?.timestamp) return;
+    if (health.timestamp === prevHealthTs.current) return;
+    prevHealthTs.current = health.timestamp;
+    clearStepTimers();
+    setHealthDone(true);
+    // Show "done" briefly then hide the progress card
+    const t = setTimeout(() => {
+      setHealthPending(false);
+      setHealthDone(false);
+      setHealthStep(0);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [health, healthPending]);
 
   // Auto health check every 5 minutes when enabled
   useEffect(() => {
@@ -186,10 +282,11 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     return () => clearInterval(t);
   }, [autoHealth, runHealthCheck]);
 
-  // Pending events that don't yet have a completed analysis
+  // Cleanup on unmount
+  useEffect(() => () => clearStepTimers(), []);
+
   const completedIds = new Set((analyses || []).map(a => a.event_id));
   const pendingList = Object.values(pendingEvents || {}).filter(e => !completedIds.has(e.event_id));
-
   const newCount = (analyses || []).filter(a => newIds.has(a.event_id)).length;
   const pendingCount = pendingList.length;
 
@@ -235,11 +332,17 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
         </button>
         <button
           onClick={() => setTab('health')}
-          className={`px-4 py-2 text-sm rounded-lg font-medium transition-all ${
+          className={`px-4 py-2 text-sm rounded-lg font-medium transition-all flex items-center gap-2 ${
             tab === 'health' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'
           }`}
         >
           System Health
+          {healthPending && (
+            <svg className="animate-spin h-3 w-3 text-indigo-300" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+          )}
         </button>
       </div>
 
@@ -257,11 +360,7 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Pending cards at the top */}
-                {pendingList.map(e => (
-                  <PendingCard key={e.event_id} event={e} />
-                ))}
-                {/* Completed analyses */}
+                {pendingList.map(e => <PendingCard key={e.event_id} event={e} />)}
                 {(analyses || []).map((a, i) => (
                   <AnalysisCard
                     key={a.event_id || i}
@@ -278,13 +377,13 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
         {tab === 'health' && (
           <div className="space-y-4">
             {/* Controls */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={runHealthCheck}
-                disabled={healthLoading}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-50"
+                disabled={healthPending}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {healthLoading ? 'Analyzing…' : 'Run Health Check Now'}
+                {healthPending ? 'Checking…' : 'Run Health Check Now'}
               </button>
               <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
                 <input
@@ -295,16 +394,23 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
                 />
                 Auto-check every 5 min
               </label>
-              {health?.timestamp && (
+              {health?.timestamp && !healthPending && (
                 <span className="text-gray-600 text-xs ml-auto">
                   Last check: {formatDistanceToNow(new Date(health.timestamp), { addSuffix: true })}
                 </span>
               )}
             </div>
 
-            {health ? (
-              <HealthCard health={health} />
-            ) : (
+            {/* Progress card — shown while checking */}
+            {healthPending && (
+              <HealthProgressCard step={healthStep} done={healthDone} />
+            )}
+
+            {/* Result card — shown after check completes */}
+            {!healthPending && health && <HealthCard health={health} />}
+
+            {/* Empty state — no check run yet */}
+            {!healthPending && !health && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center">
                 <p style={{ fontSize: 40 }} className="mb-3">🏥</p>
                 <p className="text-gray-400 text-sm">No health analysis yet</p>
