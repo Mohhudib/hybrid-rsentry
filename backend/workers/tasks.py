@@ -103,6 +103,12 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
         from backend.services.ai_analyst import analyze_event
         from backend.routers.ws import publish_to_channel
         result = analyze_event(event_data)
+
+        # If NVIDIA API failed, do not publish an error card — pending card will expire naturally
+        if result.get("analysis_failed"):
+            logger.warning("AI analysis failed for event %s: %s", event_id, result.get("reason"))
+            return
+
         result["event_id"] = event_id
         result["type"] = "ai_analysis"
         asyncio.run(publish_to_channel("rsentry:ai", result))
