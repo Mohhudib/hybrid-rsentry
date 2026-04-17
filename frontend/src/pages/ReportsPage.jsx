@@ -81,8 +81,11 @@ export default function ReportsPage() {
       return true;
     });
 
-  const critCount = alerts.filter((a) => a.severity === 'CRITICAL').length;
-  const unackedCount = alerts.filter((a) => !a.acknowledged).length;
+  // Summary counts — use unacked only to match dashboard StatsBar
+  const activeAlerts = alerts.filter(a => !a.acknowledged);
+  const activeCritical = activeAlerts.filter(a => a.severity === 'CRITICAL').length;
+  const activeHigh = activeAlerts.filter(a => a.severity === 'HIGH').length;
+  const activeMedium = activeAlerts.filter(a => a.severity === 'MEDIUM').length;
 
   return (
     <div className="flex-1 overflow-auto p-6">
@@ -109,19 +112,27 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      {/* Summary cards — same numbers as dashboard StatsBar (active/unacked only) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4">
-          <p className="text-gray-500 text-xs uppercase tracking-wider">Total Alerts</p>
-          <p className="text-2xl font-bold text-white mt-1">{alerts.length}</p>
+          <p className="text-gray-500 text-xs uppercase tracking-wider">Active Alerts</p>
+          <p className="text-2xl font-bold text-white mt-1">{activeAlerts.length}</p>
+          <p className="text-gray-600 text-xs mt-0.5">unacknowledged</p>
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4">
-          <p className="text-gray-500 text-xs uppercase tracking-wider">Critical Alerts</p>
-          <p className="text-2xl font-bold text-red-400 mt-1">{critCount}</p>
+          <p className="text-gray-500 text-xs uppercase tracking-wider">Active Critical</p>
+          <p className="text-2xl font-bold text-red-400 mt-1">{activeCritical}</p>
+          <p className="text-gray-600 text-xs mt-0.5">immediate action</p>
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4">
-          <p className="text-gray-500 text-xs uppercase tracking-wider">Unacknowledged</p>
-          <p className="text-2xl font-bold text-orange-400 mt-1">{unackedCount}</p>
+          <p className="text-gray-500 text-xs uppercase tracking-wider">Active High</p>
+          <p className="text-2xl font-bold text-orange-400 mt-1">{activeHigh}</p>
+          <p className="text-gray-600 text-xs mt-0.5">investigate now</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl px-5 py-4">
+          <p className="text-gray-500 text-xs uppercase tracking-wider">Total (All-Time)</p>
+          <p className="text-2xl font-bold text-gray-400 mt-1">{alerts.length}</p>
+          <p className="text-gray-600 text-xs mt-0.5">incl. acknowledged</p>
         </div>
       </div>
 
