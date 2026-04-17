@@ -24,7 +24,7 @@ export default function AlertsPage({ newAlert }) {
 
   const fetchAlerts = useCallback(async () => {
     try {
-      const { data } = await getAlerts({ limit: 200 });
+      const { data } = await getAlerts({ limit: 500 });
       setAlerts(data);
     } catch (err) {
       console.error(err);
@@ -33,13 +33,12 @@ export default function AlertsPage({ newAlert }) {
     }
   }, []);
 
-  // Auto-refresh every 5 seconds so medium/low counts stay current
+  // Auto-refresh every 5 seconds
   useEffect(() => {
+    fetchAlerts();
     const t = setInterval(fetchAlerts, 5000);
     return () => clearInterval(t);
   }, [fetchAlerts]);
-
-  useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
 
   useEffect(() => {
     if (!newAlert) return;
@@ -56,20 +55,32 @@ export default function AlertsPage({ newAlert }) {
     } catch (err) { console.error(err); }
   };
 
-  const filtered = alerts
-    .filter((a) => filter === 'ALL' || a.severity === filter)
-    .filter((a) => showAcked || !a.acknowledged);
-
-  const counts = alerts.reduce((acc, a) => {
+  // Filter badge counts use only ACTIVE (unacked) alerts — matches dashboard StatsBar
+  const activeAlerts = alerts.filter(a => !a.acknowledged);
+  const counts = activeAlerts.reduce((acc, a) => {
     acc[a.severity] = (acc[a.severity] || 0) + 1;
     return acc;
   }, {});
 
+  const filtered = alerts
+    .filter((a) => filter === 'ALL' || a.severity === filter)
+    .filter((a) => showAcked || !a.acknowledged);
+
   return (
     <div className="flex-1 overflow-auto p-6">
-      <div className="mb-6">
-        <h2 className="text-white text-xl font-semibold">Alerts</h2>
-        <p className="text-gray-500 text-sm">All detected ransomware activity</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h2 className="text-white text-xl font-semibold">Alerts</h2>
+          <p className="text-gray-500 text-sm">All detected ransomware activity</p>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <span>
+            <span className="text-white font-bold">{activeAlerts.length}</span> active
+          </span>
+          <span>
+            <span className="text-gray-400 font-bold">{alerts.length}</span> total
+          </span>
+        </div>
       </div>
 
       {/* Filter bar */}
