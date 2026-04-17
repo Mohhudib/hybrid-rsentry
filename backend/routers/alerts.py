@@ -98,8 +98,8 @@ async def analyze_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db))
                 "details": ev.details or {},
             }
 
-    from backend.workers.tasks import analyze_event_ai
-    analyze_event_ai.delay(str(alert.event_id or alert_id), event_data)
+    from backend.workers.tasks import analyze_alert_ai
+    analyze_alert_ai.delay(str(alert.event_id or alert_id), event_data)
     return {"queued": True, "alert_id": str(alert_id)}
 
 
