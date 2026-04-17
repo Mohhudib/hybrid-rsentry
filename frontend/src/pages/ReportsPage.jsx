@@ -85,7 +85,6 @@ export default function ReportsPage() {
   const activeAlerts = alerts.filter(a => !a.acknowledged);
   const activeCritical = activeAlerts.filter(a => a.severity === 'CRITICAL').length;
   const activeHigh = activeAlerts.filter(a => a.severity === 'HIGH').length;
-  const activeMedium = activeAlerts.filter(a => a.severity === 'MEDIUM').length;
 
   return (
     <div className="flex-1 overflow-auto p-6">
