@@ -8,8 +8,8 @@ import FilesystemPage from './pages/FilesystemPage';
 import AIAnalystPage from './pages/AIAnalystPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
-const AI_EXPIRY_MS = 4 * 60 * 1000; // 4 minutes
-const AI_PENDING_TIMEOUT_MS = 45 * 1000; // 45 seconds — drop pending if no AI result arrives
+const AI_EXPIRY_MS = 4 * 60 * 1000;
+const AI_PENDING_TIMEOUT_MS = 45 * 1000;
 const AI_TRIGGER_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM']);
 
 export default function App() {
@@ -26,14 +26,15 @@ export default function App() {
   // Ref mirror of aiTimestamps — lets the expiry interval read current values
   // without being listed as a dependency (avoids restarting the interval every analysis)
   const aiTimestampsRef = useRef({});
-  // Pending events waiting for AI analysis result (event_id → event info + _addedAt)
   const [aiPendingEvents, setAiPendingEvents] = useState({});
+
+  // Latest AI result — passed to AlertsPage so it can react immediately
+  const [latestAiResult, setLatestAiResult] = useState(null);
 
   const handleWsMessage = useCallback((msg) => {
     if (msg.type === 'new_alert') setLiveAlert(msg);
     if (msg.type === 'new_event') {
       setLiveEvent(msg);
-      // Show pending card immediately for events that will be analyzed
       if (AI_TRIGGER_SEVERITIES.has(msg.severity)) {
         setAiPendingEvents(prev => ({
           ...prev,
@@ -51,7 +52,6 @@ export default function App() {
     }
 
     if (msg.type === 'ai_analysis' && msg.event_id) {
-      // Remove from pending — analysis arrived (real or Markov pre-built)
       setAiPendingEvents(prev => {
         const next = { ...prev };
         delete next[msg.event_id];
@@ -65,6 +65,8 @@ export default function App() {
       const ts = new Date().toISOString();
       aiTimestampsRef.current[msg.event_id] = ts;
       setAiTimestamps(prev => ({ ...prev, [msg.event_id]: ts }));
+      // Notify AlertsPage of the new result so it can refresh immediately
+      setLatestAiResult({ ...msg, _receivedAt: Date.now() });
       setTimeout(() => setAiNewIds(prev => {
         const n = new Set(prev); n.delete(msg.event_id); return n;
       }), 10000);
@@ -76,7 +78,7 @@ export default function App() {
   }, []);
 
   // Expire AI analyses older than 4 minutes + expire stale pending cards.
-  // Uses aiTimestampsRef (not state) so the interval is created once and never restarted.
+  // Uses aiTimestampsRef so the interval is created once and never restarted.
   useEffect(() => {
     const t = setInterval(() => {
       const cutoff = Date.now() - AI_EXPIRY_MS;
@@ -84,7 +86,6 @@ export default function App() {
         const ts = aiTimestampsRef.current[a.event_id];
         return ts ? new Date(ts).getTime() > cutoff : true;
       }));
-      // Drop pending events whose AI analysis never arrived (NVIDIA failed silently)
       const pendingCutoff = Date.now() - AI_PENDING_TIMEOUT_MS;
       setAiPendingEvents(prev => {
         const next = { ...prev };
@@ -102,7 +103,7 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard':  return <Overview liveAlert={liveAlert} liveEvent={liveEvent} connected={connected} />;
-      case 'alerts':     return <AlertsPage newAlert={liveAlert} />;
+      case 'alerts':     return <AlertsPage newAlert={liveAlert} liveAiResult={latestAiResult} />;
       case 'hosts':      return <HostsPage />;
       case 'filesystem': return <FilesystemPage newEvent={liveEvent} connected={connected} />;
       case 'ai':         return (
