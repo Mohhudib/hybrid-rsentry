@@ -30,6 +30,23 @@ _client_events = None   # for live event analysis
 _client_alerts = None   # for alert analysis
 _redis = None
 
+# Lua script for atomic check-and-claim of a rate limit slot.
+# Returns '0' if the slot was claimed, or the remaining wait seconds as a string.
+_RATE_LIMIT_LUA = """
+local key = KEYS[1]
+local delay = tonumber(ARGV[1])
+local now = tonumber(ARGV[2])
+local last = redis.call('GET', key)
+if last then
+    local elapsed = now - tonumber(last)
+    if elapsed < delay then
+        return tostring(delay - elapsed)
+    end
+end
+redis.call('SET', key, tostring(now), 'EX', 30)
+return '0'
+"""
+
 
 def _get_redis():
     global _redis
@@ -62,19 +79,20 @@ def _get_client_alerts():
 
 
 def _rate_limit(redis_key: str):
-    """Block until at least 3 seconds have passed since the last call on this key."""
+    """Block until a rate limit slot is atomically claimed for this key.
+
+    Uses a Lua script so the check-and-set is atomic — two concurrent Celery
+    workers cannot both pass simultaneously.
+    """
     r = _get_redis()
+    script = r.register_script(_RATE_LIMIT_LUA)
     while True:
-        last = r.get(redis_key)
-        if not last:
+        wait_str = script(keys=[redis_key], args=[str(_RATE_DELAY), str(time.time())])
+        wait = float(wait_str)
+        if wait <= 0:
             break
-        elapsed = time.time() - float(last)
-        if elapsed >= _RATE_DELAY:
-            break
-        wait = _RATE_DELAY - elapsed
         logger.debug("NVIDIA rate limit (%s): waiting %.1fs", redis_key, wait)
         time.sleep(wait)
-    r.set(redis_key, str(time.time()), ex=30)
 
 
 SYSTEM_PROMPT = """You are a cybersecurity AI analyst embedded in a ransomware detection system called Hybrid R-Sentry.
@@ -174,24 +192,17 @@ def analyze_alert(event: dict) -> dict:
         return {"analysis_failed": True, "reason": str(exc)[:120]}
 
 
-def analyze_system_health(recent_events: list[dict]) -> dict:
-    """
-    Analyze overall system health using NVIDIA_API_KEY (AI Analyst section).
-    Rate-limited on the same key as live events.
-    """
-    try:
-        _rate_limit(_RATE_KEY_EVENTS)
-        client = _get_client_events()
+def _build_health_prompt(recent_events: list[dict]) -> str:
+    counts: dict = {}
+    for e in recent_events:
+        key = e.get("event_type", "UNKNOWN")
+        counts[key] = counts.get(key, 0) + 1
 
-        counts = {}
-        for e in recent_events:
-            counts[e.get("event_type", "UNKNOWN")] = counts.get(e.get("event_type"), 0) + 1
+    severities = [e.get("severity") for e in recent_events]
+    critical_count = severities.count("CRITICAL")
+    high_count = severities.count("HIGH")
 
-        severities = [e.get("severity") for e in recent_events]
-        critical_count = severities.count("CRITICAL")
-        high_count = severities.count("HIGH")
-
-        health_prompt = f"""Analyze the overall system health based on recent activity:
+    return f"""Analyze the overall system health based on recent activity:
 
 Total events (last period): {len(recent_events)}
 Event type breakdown: {json.dumps(counts)}
@@ -210,21 +221,16 @@ Respond with JSON:
   "confidence": "HIGH | MEDIUM | LOW"
 }}"""
 
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": health_prompt},
-            ],
-            temperature=0.1,
-            max_tokens=500,
-        )
-        text = response.choices[0].message.content.strip()
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        return json.loads(text)
 
+def analyze_system_health(recent_events: list[dict]) -> dict:
+    """
+    Analyze overall system health using NVIDIA_API_KEY (AI Analyst section).
+    Rate-limited on the same key as live events.
+    """
+    try:
+        _rate_limit(_RATE_KEY_EVENTS)
+        result = _call_nvidia(_get_client_events(), _build_health_prompt(recent_events))
+        return result
     except Exception as exc:
         logger.warning("NVIDIA health analysis failed: %s", exc)
         return {
