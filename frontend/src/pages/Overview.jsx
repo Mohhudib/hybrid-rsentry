@@ -8,7 +8,7 @@ import TacticalResponseLog from '../components/TacticalResponseLog';
 export default function Overview({ liveAlert, liveEvent, connected }) {
   return (
     <div className="flex-1 overflow-auto p-6">
-      {/* Header with live indicator */}
+      {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-white text-xl font-semibold">Overview</h2>
@@ -31,15 +31,18 @@ export default function Overview({ liveAlert, liveEvent, connected }) {
         <EventChart />
       </div>
 
-      {/* 3-col grid: Tactical | Alerts | Hosts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" style={{ minHeight: 420 }}>
+      {/* Bottom section: 4-column grid
+          - Tactical Response Log : 1 col (25%)
+          - Live Alert Feed       : 2 cols (50%) — widest, most important
+          - Host Risk Panel       : 1 col (25%) — read-only risk view   */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" style={{ minHeight: 420 }}>
         <div className="overflow-hidden" style={{ maxHeight: 560 }}>
           <TacticalResponseLog liveEvent={liveEvent} />
         </div>
-        <div className="overflow-hidden" style={{ maxHeight: 560 }}>
+        <div className="lg:col-span-2 overflow-hidden" style={{ maxHeight: 560 }}>
           <AlertFeed newAlert={liveAlert} />
         </div>
-        <div>
+        <div style={{ maxHeight: 560 }}>
           <HostRiskPanel />
         </div>
       </div>
