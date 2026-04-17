@@ -4,6 +4,7 @@ import axios from 'axios';
 import { formatDistanceToNow } from 'date-fns';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const RATE_DELAY = 3; // seconds between NVIDIA calls
 
 const RISK_COLORS = {
   CRITICAL: { text: 'text-red-400',    bg: 'bg-red-900/30',    border: 'border-red-700' },
@@ -30,11 +31,10 @@ const HEALTH_STEPS = [
   { label: 'Finalizing health report…',                duration: 2000 },
 ];
 
-// ─── Health check progress card ────────────────────────────────────────────
+// ─── Health check progress card ─────────────────────────────────────────────
 
 function HealthProgressCard({ step, done }) {
   const pct = done ? 100 : Math.round(((step + 1) / HEALTH_STEPS.length) * 100);
-
   return (
     <div className="bg-gray-900 border border-indigo-800/50 rounded-xl p-5 space-y-4">
       <div className="flex items-center gap-3">
@@ -46,25 +46,14 @@ function HealthProgressCard({ step, done }) {
           {done ? 'Analysis complete — loading result…' : HEALTH_STEPS[step]?.label}
         </p>
       </div>
-
-      {/* Progress bar */}
       <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
-        <div
-          className="h-2 rounded-full bg-indigo-500 transition-all duration-700 ease-out"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="h-2 rounded-full bg-indigo-500 transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
       </div>
-
-      {/* Step indicators */}
       <div className="flex items-center justify-between gap-2">
         {HEALTH_STEPS.map((s, i) => (
           <div key={i} className="flex-1 flex flex-col items-center gap-1">
             <div className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-              done || i < step
-                ? 'bg-indigo-500'
-                : i === step
-                  ? 'bg-indigo-400 ring-2 ring-indigo-400/40 animate-pulse'
-                  : 'bg-gray-700'
+              done || i < step ? 'bg-indigo-500' : i === step ? 'bg-indigo-400 ring-2 ring-indigo-400/40 animate-pulse' : 'bg-gray-700'
             }`} />
             <p className={`text-center text-[10px] leading-tight hidden sm:block ${
               done || i < step ? 'text-indigo-400' : i === step ? 'text-gray-300' : 'text-gray-600'
@@ -74,15 +63,28 @@ function HealthProgressCard({ step, done }) {
           </div>
         ))}
       </div>
-
       <p className="text-gray-600 text-xs text-right">{pct}%</p>
     </div>
   );
 }
 
-// ─── Pending card (shown while AI is still processing an event) ─────────────
+// ─── Pending card with queue position + countdown ────────────────────────────
 
-function PendingCard({ event }) {
+function PendingCard({ event, queuePos }) {
+  const [secsLeft, setSecsLeft] = useState(null);
+
+  // Estimate wait: position 0 = processing now, position N = N * RATE_DELAY seconds
+  useEffect(() => {
+    const expectedAt = event._addedAt + queuePos * RATE_DELAY * 1000;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((expectedAt - Date.now()) / 1000));
+      setSecsLeft(left);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [event._addedAt, queuePos]);
+
   const severityColor = {
     CRITICAL: 'text-red-400 border-red-700 bg-red-900/20',
     HIGH:     'text-orange-400 border-orange-700 bg-orange-900/20',
@@ -96,17 +98,33 @@ function PendingCard({ event }) {
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
       </svg>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium">AI Analyst is processing this event…</p>
+        <p className="text-sm font-medium">
+          {queuePos === 0 ? 'AI Analyst is processing this event…' : 'Queued for AI analysis…'}
+        </p>
         <p className="text-xs opacity-60 truncate mt-0.5">
           {event.event_type} — {event.file_path || event.process_name || event.host_id}
         </p>
       </div>
-      <span className="text-xs font-bold opacity-70 shrink-0">{event.severity}</span>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <span className="text-xs font-bold opacity-70">{event.severity}</span>
+        {queuePos === 0 ? (
+          <span className="text-xs opacity-50">Analyzing…</span>
+        ) : (
+          <span className="text-xs opacity-60 font-mono tabular-nums">
+            ~{secsLeft !== null ? `${secsLeft}s` : `${queuePos * RATE_DELAY}s`}
+          </span>
+        )}
+      </div>
+      {queuePos > 0 && (
+        <span className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded font-mono shrink-0 opacity-60">
+          #{queuePos + 1}
+        </span>
+      )}
     </div>
   );
 }
 
-// ─── Analysis card ──────────────────────────────────────────────────────────
+// ─── Analysis card ───────────────────────────────────────────────────────────
 
 function AnalysisCard({ analysis, isNew, timestamp }) {
   const [expanded, setExpanded] = useState(isNew);
@@ -121,12 +139,8 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-bold ${risk.text}`}>{analysis.threat_type}</span>
-            {isNew && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-bold animate-pulse">NEW</span>
-            )}
-            {analysis.markov_action && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-800 text-blue-200 font-semibold">Markov Chain</span>
-            )}
+            {isNew && <span className="text-xs px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-bold animate-pulse">NEW</span>}
+            {analysis.markov_action && <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-800 text-blue-200 font-semibold">Markov Chain</span>}
             <span className={`text-xs ${CONFIDENCE_COLORS[analysis.confidence] || 'text-gray-500'}`}>
               {analysis.confidence} confidence
             </span>
@@ -134,9 +148,7 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
           <p className="text-gray-400 text-xs mt-0.5 truncate">{analysis.technique}</p>
         </div>
         <div className="text-right shrink-0">
-          {timestamp && (
-            <p className="text-gray-500 text-xs">{formatDistanceToNow(new Date(timestamp), { addSuffix: true })}</p>
-          )}
+          {timestamp && <p className="text-gray-500 text-xs">{formatDistanceToNow(new Date(timestamp), { addSuffix: true })}</p>}
           <span className="text-gray-600 text-xs">{expanded ? '▲' : '▼'}</span>
         </div>
       </div>
@@ -156,25 +168,21 @@ function AnalysisCard({ analysis, isNew, timestamp }) {
           {analysis.language_or_tool && analysis.language_or_tool !== '—' && (
             <div>
               <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Tool / Language Detected</p>
-              <span className="inline-block bg-gray-800 text-gray-200 text-xs px-2 py-1 rounded font-mono">
-                {analysis.language_or_tool}
-              </span>
+              <span className="inline-block bg-gray-800 text-gray-200 text-xs px-2 py-1 rounded font-mono">{analysis.language_or_tool}</span>
             </div>
           )}
           <div className={`rounded-lg border p-3 ${risk.bg} ${risk.border}`}>
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Recommendation</p>
             <p className="text-gray-200 text-sm">{analysis.recommendation}</p>
           </div>
-          {analysis.event_id && (
-            <p className="text-gray-700 text-xs font-mono">Event ID: {analysis.event_id}</p>
-          )}
+          {analysis.event_id && <p className="text-gray-700 text-xs font-mono">Event ID: {analysis.event_id}</p>}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Health status card ─────────────────────────────────────────────────────
+// ─── Health status card ──────────────────────────────────────────────────────
 
 function HealthCard({ health }) {
   const info = STATUS_INFO[health.status] || STATUS_INFO.UNKNOWN;
@@ -210,23 +218,19 @@ function HealthCard({ health }) {
   );
 }
 
-// ─── Main page ──────────────────────────────────────────────────────────────
+// ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function AIAnalystPage({ connected, analyses, health, newIds, timestamps, pendingEvents, onHealthUpdate }) {
   const [tab, setTab] = useState('events');
   const [autoHealth, setAutoHealth] = useState(false);
 
-  // Health check progress state
   const [healthPending, setHealthPending] = useState(false);
   const [healthStep, setHealthStep] = useState(0);
   const [healthDone, setHealthDone] = useState(false);
   const healthStartedAt = useRef(null);
   const stepTimers = useRef([]);
 
-  const clearStepTimers = () => {
-    stepTimers.current.forEach(clearTimeout);
-    stepTimers.current = [];
-  };
+  const clearStepTimers = () => { stepTimers.current.forEach(clearTimeout); stepTimers.current = []; };
 
   const runHealthCheck = useCallback(async () => {
     if (healthPending) return;
@@ -235,20 +239,16 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     setHealthDone(false);
     healthStartedAt.current = Date.now();
     clearStepTimers();
-
-    // Advance steps on a timer to show visual progress
     let elapsed = 0;
     HEALTH_STEPS.forEach((s, i) => {
-      if (i === 0) return; // step 0 is immediate
+      if (i === 0) return;
       elapsed += HEALTH_STEPS[i - 1].duration;
       const t = setTimeout(() => setHealthStep(i), elapsed);
       stepTimers.current.push(t);
     });
-
     try {
       const { data: events } = await getEvents({ limit: 100 });
       await axios.post(`${API_URL}/api/ai/health`, { events });
-      // POST returned — Celery task queued, now waiting for WebSocket result
     } catch (err) {
       console.error(err);
       clearStepTimers();
@@ -256,25 +256,16 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     }
   }, [healthPending]);
 
-  // When health prop updates with a new timestamp, the WS result arrived — finish progress
   const prevHealthTs = useRef(null);
   useEffect(() => {
-    if (!healthPending) return;
-    if (!health?.timestamp) return;
-    if (health.timestamp === prevHealthTs.current) return;
+    if (!healthPending || !health?.timestamp || health.timestamp === prevHealthTs.current) return;
     prevHealthTs.current = health.timestamp;
     clearStepTimers();
     setHealthDone(true);
-    // Show "done" briefly then hide the progress card
-    const t = setTimeout(() => {
-      setHealthPending(false);
-      setHealthDone(false);
-      setHealthStep(0);
-    }, 1200);
+    const t = setTimeout(() => { setHealthPending(false); setHealthDone(false); setHealthStep(0); }, 1200);
     return () => clearTimeout(t);
   }, [health, healthPending]);
 
-  // Auto health check every 5 minutes when enabled
   useEffect(() => {
     if (!autoHealth) return;
     runHealthCheck();
@@ -282,25 +273,24 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     return () => clearInterval(t);
   }, [autoHealth, runHealthCheck]);
 
-  // Cleanup on unmount
   useEffect(() => () => clearStepTimers(), []);
 
   const completedIds = new Set((analyses || []).map(a => a.event_id));
-  const pendingList = Object.values(pendingEvents || {}).filter(e => !completedIds.has(e.event_id));
+  const pendingList = Object.values(pendingEvents || {})
+    .filter(e => !completedIds.has(e.event_id))
+    .sort((a, b) => a._addedAt - b._addedAt);
+
   const newCount = (analyses || []).filter(a => newIds.has(a.event_id)).length;
   const pendingCount = pendingList.length;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden p-6">
-      {/* Header */}
       <div className="mb-5 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
             <span style={{ fontSize: 24 }}>🤖</span>
             <h2 className="text-white text-xl font-semibold">AI Threat Analyst</h2>
-            <span className="text-xs px-2 py-1 rounded-lg bg-indigo-900 text-indigo-300 font-medium">
-              Powered by NVIDIA
-            </span>
+            <span className="text-xs px-2 py-1 rounded-lg bg-indigo-900 text-indigo-300 font-medium">Powered by NVIDIA</span>
             <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg border ${
               connected ? 'bg-green-900/30 border-green-700 text-green-400' : 'bg-red-900/30 border-red-800 text-red-400'
             }`}>
@@ -314,7 +304,6 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
         <button
           onClick={() => setTab('events')}
@@ -323,12 +312,8 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
           }`}
         >
           Event Analysis
-          {pendingCount > 0 && (
-            <span className="bg-yellow-500 text-black text-xs px-1.5 py-0.5 rounded-full font-bold">{pendingCount}</span>
-          )}
-          {newCount > 0 && (
-            <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{newCount}</span>
-          )}
+          {pendingCount > 0 && <span className="bg-yellow-500 text-black text-xs px-1.5 py-0.5 rounded-full font-bold">{pendingCount}</span>}
+          {newCount > 0 && <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">{newCount}</span>}
         </button>
         <button
           onClick={() => setTab('health')}
@@ -346,10 +331,17 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {tab === 'events' && (
           <div>
+            {pendingCount > 0 && (
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                <p className="text-yellow-400 text-xs">
+                  {pendingCount} event{pendingCount > 1 ? 's' : ''} queued — NVIDIA rate limit: {RATE_DELAY}s between analyses
+                </p>
+              </div>
+            )}
             {pendingList.length === 0 && (analyses || []).length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center">
                 <p style={{ fontSize: 40 }} className="mb-3">🤖</p>
@@ -360,14 +352,9 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
               </div>
             ) : (
               <div className="space-y-3">
-                {pendingList.map(e => <PendingCard key={e.event_id} event={e} />)}
+                {pendingList.map((e, i) => <PendingCard key={e.event_id} event={e} queuePos={i} />)}
                 {(analyses || []).map((a, i) => (
-                  <AnalysisCard
-                    key={a.event_id || i}
-                    analysis={a}
-                    isNew={newIds.has(a.event_id)}
-                    timestamp={timestamps[a.event_id]}
-                  />
+                  <AnalysisCard key={a.event_id || i} analysis={a} isNew={newIds.has(a.event_id)} timestamp={timestamps[a.event_id]} />
                 ))}
               </div>
             )}
@@ -376,7 +363,6 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
 
         {tab === 'health' && (
           <div className="space-y-4">
-            {/* Controls */}
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={runHealthCheck}
@@ -386,12 +372,7 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
                 {healthPending ? 'Checking…' : 'Run Health Check Now'}
               </button>
               <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={autoHealth}
-                  onChange={e => setAutoHealth(e.target.checked)}
-                  className="rounded"
-                />
+                <input type="checkbox" checked={autoHealth} onChange={e => setAutoHealth(e.target.checked)} className="rounded" />
                 Auto-check every 5 min
               </label>
               {health?.timestamp && !healthPending && (
@@ -400,23 +381,13 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
                 </span>
               )}
             </div>
-
-            {/* Progress card — shown while checking */}
-            {healthPending && (
-              <HealthProgressCard step={healthStep} done={healthDone} />
-            )}
-
-            {/* Result card — shown after check completes */}
+            {healthPending && <HealthProgressCard step={healthStep} done={healthDone} />}
             {!healthPending && health && <HealthCard health={health} />}
-
-            {/* Empty state — no check run yet */}
             {!healthPending && !health && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-10 text-center">
                 <p style={{ fontSize: 40 }} className="mb-3">🏥</p>
                 <p className="text-gray-400 text-sm">No health analysis yet</p>
-                <p className="text-gray-600 text-xs mt-1">
-                  Click "Run Health Check Now" or enable auto-check
-                </p>
+                <p className="text-gray-600 text-xs mt-1">Click "Run Health Check Now" or enable auto-check</p>
               </div>
             )}
           </div>
