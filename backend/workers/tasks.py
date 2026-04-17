@@ -64,7 +64,7 @@ def push_alert_ws(self, alert_id: str, host_id: str, severity: str, event_type: 
             "severity": severity,
             "event_type": event_type,
         }
-        asyncio.run(publish_to_channel("rsentry:alerts", payload))
+        _run(publish_to_channel("rsentry:alerts", payload))
         logger.info("WS alert pushed: %s", alert_id)
     except Exception as exc:
         logger.error("push_alert_ws failed: %s", exc)
@@ -90,7 +90,7 @@ def push_event_ws(self, event_id: str, host_id: str, event_type: str,
             "process_name": process_name,
             "details": details or {},
         }
-        asyncio.run(publish_to_channel("rsentry:events", payload))
+        _run(publish_to_channel("rsentry:events", payload))
     except Exception as exc:
         logger.error("push_event_ws failed: %s", exc)
         raise self.retry(exc=exc, countdown=1)
@@ -111,7 +111,7 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
 
         result["event_id"] = event_id
         result["type"] = "ai_analysis"
-        asyncio.run(publish_to_channel("rsentry:ai", result))
+        _run(publish_to_channel("rsentry:ai", result))
         logger.info("AI analysis complete for event %s: %s", event_id, result.get("threat_type"))
 
         # Auto-acknowledge if AI determines this is Benign or LOW risk
@@ -138,7 +138,7 @@ def analyze_alert_ai(self, event_id: str, event_data: dict):
 
         result["event_id"] = event_id
         result["type"] = "ai_analysis"
-        asyncio.run(publish_to_channel("rsentry:ai", result))
+        _run(publish_to_channel("rsentry:ai", result))
         logger.info("Alert AI analysis complete for event %s: %s", event_id, result.get("threat_type"))
 
         # Auto-acknowledge the alert if AI says it is Benign or LOW risk (false positive)
@@ -168,7 +168,7 @@ def publish_markov_analysis(self, event_id: str):
             "confidence": "HIGH",
             "markov_action": True,
         }
-        asyncio.run(publish_to_channel("rsentry:ai", result))
+        _run(publish_to_channel("rsentry:ai", result))
         logger.info("Published Markov analysis for event %s", event_id)
     except Exception as exc:
         logger.error("publish_markov_analysis failed: %s", exc)
