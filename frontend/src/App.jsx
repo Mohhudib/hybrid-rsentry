@@ -9,6 +9,7 @@ import AIAnalystPage from './pages/AIAnalystPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 const AI_EXPIRY_MS = 4 * 60 * 1000; // 4 minutes
+const AI_PENDING_TIMEOUT_MS = 45 * 1000; // 45 seconds — drop pending if no AI result arrives
 const AI_TRIGGER_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM']);
 
 export default function App() {
@@ -22,14 +23,14 @@ export default function App() {
   const [aiHealth, setAiHealth] = useState(null);
   const [aiNewIds, setAiNewIds] = useState(new Set());
   const [aiTimestamps, setAiTimestamps] = useState({});
-  // Pending events waiting for AI analysis result
+  // Pending events waiting for AI analysis result (event_id → event info + _addedAt)
   const [aiPendingEvents, setAiPendingEvents] = useState({});
 
   const handleWsMessage = useCallback((msg) => {
     if (msg.type === 'new_alert') setLiveAlert(msg);
     if (msg.type === 'new_event') {
       setLiveEvent(msg);
-      // Track events that are awaiting AI analysis
+      // Show pending card immediately for events that will be analyzed
       if (AI_TRIGGER_SEVERITIES.has(msg.severity)) {
         setAiPendingEvents(prev => ({
           ...prev,
@@ -40,13 +41,14 @@ export default function App() {
             file_path: msg.file_path,
             process_name: msg.process_name,
             host_id: msg.host_id,
+            _addedAt: Date.now(),
           },
         }));
       }
     }
 
     if (msg.type === 'ai_analysis' && msg.event_id) {
-      // Remove from pending — analysis arrived
+      // Remove from pending — analysis arrived (real or Markov pre-built)
       setAiPendingEvents(prev => {
         const next = { ...prev };
         delete next[msg.event_id];
@@ -68,7 +70,7 @@ export default function App() {
     }
   }, []);
 
-  // Expire AI analyses older than 4 minutes
+  // Expire AI analyses older than 4 minutes + expire stale pending cards
   useEffect(() => {
     const t = setInterval(() => {
       const cutoff = Date.now() - AI_EXPIRY_MS;
@@ -76,18 +78,16 @@ export default function App() {
         const ts = aiTimestamps[a.event_id];
         return ts ? new Date(ts).getTime() > cutoff : true;
       }));
-      // Also expire pending events older than 30s (Celery likely failed)
-      const pendingCutoff = Date.now() - 30000;
+      // Drop pending events whose AI analysis never arrived (NVIDIA failed silently)
+      const pendingCutoff = Date.now() - AI_PENDING_TIMEOUT_MS;
       setAiPendingEvents(prev => {
         const next = { ...prev };
         Object.keys(next).forEach(id => {
-          if (next[id]._addedAt && next[id]._addedAt < pendingCutoff) {
-            delete next[id];
-          }
+          if (next[id]._addedAt < pendingCutoff) delete next[id];
         });
         return next;
       });
-    }, 30000);
+    }, 15000);
     return () => clearInterval(t);
   }, [aiTimestamps]);
 
