@@ -124,6 +124,33 @@ def analyze_event_ai(self, event_id: str, event_data: dict):
         raise self.retry(exc=exc, countdown=5)
 
 
+@celery_app.task(name="analyze_alert_ai", bind=True, max_retries=2)
+def analyze_alert_ai(self, event_id: str, event_data: dict):
+    """Analyze an alert on-demand using NVIDIA_API_KEY_ALERTS — separate key and rate limit from live events."""
+    try:
+        from backend.services.ai_analyst import analyze_alert
+        from backend.routers.ws import publish_to_channel
+        result = analyze_alert(event_data)
+
+        if result.get("analysis_failed"):
+            logger.warning("Alert AI analysis failed for event %s: %s", event_id, result.get("reason"))
+            return
+
+        result["event_id"] = event_id
+        result["type"] = "ai_analysis"
+        asyncio.run(publish_to_channel("rsentry:ai", result))
+        logger.info("Alert AI analysis complete for event %s: %s", event_id, result.get("threat_type"))
+
+        # Auto-acknowledge the alert if AI says it is Benign or LOW risk (false positive)
+        if result.get("threat_type") == "Benign" or result.get("risk_level") == "LOW":
+            auto_ack_by_event.delay(event_id)
+            logger.info("Auto-acknowledging false positive alert for event %s", event_id)
+
+    except Exception as exc:
+        logger.error("analyze_alert_ai failed: %s", exc)
+        raise self.retry(exc=exc, countdown=5)
+
+
 @celery_app.task(name="publish_markov_analysis", bind=True, max_retries=1)
 def publish_markov_analysis(self, event_id: str):
     """Publish a pre-built analysis for Markov chain reposition events — no NVIDIA API call needed."""
