@@ -73,7 +73,6 @@ function HealthProgressCard({ step, done }) {
 function PendingCard({ event, queuePos }) {
   const [secsLeft, setSecsLeft] = useState(null);
 
-  // Estimate wait: position 0 = processing now, position N = N * RATE_DELAY seconds
   useEffect(() => {
     const expectedAt = event._addedAt + queuePos * RATE_DELAY * 1000;
     const tick = () => {
@@ -227,17 +226,20 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
   const [healthPending, setHealthPending] = useState(false);
   const [healthStep, setHealthStep] = useState(0);
   const [healthDone, setHealthDone] = useState(false);
-  const healthStartedAt = useRef(null);
+
+  // Ref-based guard so runHealthCheck never re-creates on healthPending state changes
+  const healthPendingRef = useRef(false);
   const stepTimers = useRef([]);
 
   const clearStepTimers = () => { stepTimers.current.forEach(clearTimeout); stepTimers.current = []; };
 
+  // Stable callback — uses ref for pending guard, never re-created
   const runHealthCheck = useCallback(async () => {
-    if (healthPending) return;
+    if (healthPendingRef.current) return;
+    healthPendingRef.current = true;
     setHealthPending(true);
     setHealthStep(0);
     setHealthDone(false);
-    healthStartedAt.current = Date.now();
     clearStepTimers();
     let elapsed = 0;
     HEALTH_STEPS.forEach((s, i) => {
@@ -252,9 +254,10 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     } catch (err) {
       console.error(err);
       clearStepTimers();
+      healthPendingRef.current = false;
       setHealthPending(false);
     }
-  }, [healthPending]);
+  }, []); // stable — no deps, uses refs
 
   const prevHealthTs = useRef(null);
   useEffect(() => {
@@ -262,10 +265,16 @@ export default function AIAnalystPage({ connected, analyses, health, newIds, tim
     prevHealthTs.current = health.timestamp;
     clearStepTimers();
     setHealthDone(true);
-    const t = setTimeout(() => { setHealthPending(false); setHealthDone(false); setHealthStep(0); }, 1200);
+    const t = setTimeout(() => {
+      healthPendingRef.current = false;
+      setHealthPending(false);
+      setHealthDone(false);
+      setHealthStep(0);
+    }, 1200);
     return () => clearTimeout(t);
   }, [health, healthPending]);
 
+  // Auto-check interval — only depends on autoHealth (runHealthCheck is stable)
   useEffect(() => {
     if (!autoHealth) return;
     runHealthCheck();
