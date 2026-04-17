@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getAlerts, acknowledgeAlert } from '../api/client';
+import { getAlerts, acknowledgeAlert, analyzeAlert } from '../api/client';
 import { formatDistanceToNow } from 'date-fns';
 
 const SEVERITY_COLORS = {
@@ -21,6 +21,8 @@ export default function AlertsPage({ newAlert }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('ALL');
   const [showAcked, setShowAcked] = useState(false);
+  const [analyzing, setAnalyzing] = useState(new Set());
+  const [analyzed, setAnalyzed] = useState(new Set());
 
   const fetchAlerts = useCallback(async () => {
     try {
@@ -33,7 +35,6 @@ export default function AlertsPage({ newAlert }) {
     }
   }, []);
 
-  // Auto-refresh every 5 seconds
   useEffect(() => {
     fetchAlerts();
     const t = setInterval(fetchAlerts, 5000);
@@ -55,7 +56,21 @@ export default function AlertsPage({ newAlert }) {
     } catch (err) { console.error(err); }
   };
 
-  // Filter badge counts use only ACTIVE (unacked) alerts — matches dashboard StatsBar
+  const handleAnalyze = async (id) => {
+    if (analyzing.has(id)) return;
+    setAnalyzing(prev => new Set([...prev, id]));
+    try {
+      await analyzeAlert(id);
+      setAnalyzed(prev => new Set([...prev, id]));
+      // Result arrives via WebSocket → auto-ack if false positive
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAnalyzing(prev => { const n = new Set(prev); n.delete(id); return n; });
+    }
+  };
+
+  // Active (unacked) alert counts — matches dashboard StatsBar
   const activeAlerts = alerts.filter(a => !a.acknowledged);
   const counts = activeAlerts.reduce((acc, a) => {
     acc[a.severity] = (acc[a.severity] || 0) + 1;
@@ -74,12 +89,8 @@ export default function AlertsPage({ newAlert }) {
           <p className="text-gray-500 text-sm">All detected ransomware activity</p>
         </div>
         <div className="flex items-center gap-3 text-xs text-gray-500">
-          <span>
-            <span className="text-white font-bold">{activeAlerts.length}</span> active
-          </span>
-          <span>
-            <span className="text-gray-400 font-bold">{alerts.length}</span> total
-          </span>
+          <span><span className="text-white font-bold">{activeAlerts.length}</span> active</span>
+          <span><span className="text-gray-400 font-bold">{alerts.length}</span> total</span>
         </div>
       </div>
 
@@ -100,17 +111,11 @@ export default function AlertsPage({ newAlert }) {
           </button>
         ))}
         <label className="ml-auto flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showAcked}
-            onChange={(e) => setShowAcked(e.target.checked)}
-            className="rounded"
-          />
+          <input type="checkbox" checked={showAcked} onChange={(e) => setShowAcked(e.target.checked)} className="rounded" />
           Show acknowledged
         </label>
       </div>
 
-      {/* Alert table */}
       {loading ? (
         <p className="text-gray-400 text-sm">Loading…</p>
       ) : filtered.length === 0 ? (
@@ -137,12 +142,26 @@ export default function AlertsPage({ newAlert }) {
               {alert.acknowledged ? (
                 <span className="text-xs text-green-500 shrink-0">Acknowledged</span>
               ) : (
-                <button
-                  onClick={() => handleAck(alert.id)}
-                  className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors shrink-0"
-                >
-                  ACK
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {analyzed.has(alert.id) ? (
+                    <span className="text-xs text-indigo-400">AI queued ✓</span>
+                  ) : (
+                    <button
+                      onClick={() => handleAnalyze(alert.id)}
+                      disabled={analyzing.has(alert.id)}
+                      title="Send to NVIDIA AI — auto-acknowledges if false positive"
+                      className="text-xs bg-indigo-900/50 hover:bg-indigo-700 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 border border-indigo-700/50"
+                    >
+                      {analyzing.has(alert.id) ? '…' : 'AI Analyze'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleAck(alert.id)}
+                    className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    ACK
+                  </button>
+                </div>
               )}
             </div>
           ))}
