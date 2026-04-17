@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Overview from './pages/Overview';
 import AlertsPage from './pages/AlertsPage';
@@ -23,6 +23,9 @@ export default function App() {
   const [aiHealth, setAiHealth] = useState(null);
   const [aiNewIds, setAiNewIds] = useState(new Set());
   const [aiTimestamps, setAiTimestamps] = useState({});
+  // Ref mirror of aiTimestamps — lets the expiry interval read current values
+  // without being listed as a dependency (avoids restarting the interval every analysis)
+  const aiTimestampsRef = useRef({});
   // Pending events waiting for AI analysis result (event_id → event info + _addedAt)
   const [aiPendingEvents, setAiPendingEvents] = useState({});
 
@@ -59,7 +62,9 @@ export default function App() {
         return [msg, ...prev].slice(0, 100);
       });
       setAiNewIds(prev => new Set([...prev, msg.event_id]));
-      setAiTimestamps(prev => ({ ...prev, [msg.event_id]: new Date().toISOString() }));
+      const ts = new Date().toISOString();
+      aiTimestampsRef.current[msg.event_id] = ts;
+      setAiTimestamps(prev => ({ ...prev, [msg.event_id]: ts }));
       setTimeout(() => setAiNewIds(prev => {
         const n = new Set(prev); n.delete(msg.event_id); return n;
       }), 10000);
@@ -70,12 +75,13 @@ export default function App() {
     }
   }, []);
 
-  // Expire AI analyses older than 4 minutes + expire stale pending cards
+  // Expire AI analyses older than 4 minutes + expire stale pending cards.
+  // Uses aiTimestampsRef (not state) so the interval is created once and never restarted.
   useEffect(() => {
     const t = setInterval(() => {
       const cutoff = Date.now() - AI_EXPIRY_MS;
       setAiAnalyses(prev => prev.filter(a => {
-        const ts = aiTimestamps[a.event_id];
+        const ts = aiTimestampsRef.current[a.event_id];
         return ts ? new Date(ts).getTime() > cutoff : true;
       }));
       // Drop pending events whose AI analysis never arrived (NVIDIA failed silently)
@@ -89,7 +95,7 @@ export default function App() {
       });
     }, 15000);
     return () => clearInterval(t);
-  }, [aiTimestamps]);
+  }, []);
 
   const { connected } = useWebSocket(handleWsMessage);
 
