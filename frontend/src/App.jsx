@@ -9,6 +9,7 @@ import AIAnalystPage from './pages/AIAnalystPage';
 import { useWebSocket } from './hooks/useWebSocket';
 
 const AI_EXPIRY_MS = 4 * 60 * 1000; // 4 minutes
+const AI_TRIGGER_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM']);
 
 export default function App() {
   const [page, setPage] = useState('dashboard');
@@ -21,12 +22,36 @@ export default function App() {
   const [aiHealth, setAiHealth] = useState(null);
   const [aiNewIds, setAiNewIds] = useState(new Set());
   const [aiTimestamps, setAiTimestamps] = useState({});
+  // Pending events waiting for AI analysis result
+  const [aiPendingEvents, setAiPendingEvents] = useState({});
 
   const handleWsMessage = useCallback((msg) => {
     if (msg.type === 'new_alert') setLiveAlert(msg);
-    if (msg.type === 'new_event') setLiveEvent(msg);
+    if (msg.type === 'new_event') {
+      setLiveEvent(msg);
+      // Track events that are awaiting AI analysis
+      if (AI_TRIGGER_SEVERITIES.has(msg.severity)) {
+        setAiPendingEvents(prev => ({
+          ...prev,
+          [msg.event_id]: {
+            event_id: msg.event_id,
+            event_type: msg.event_type,
+            severity: msg.severity,
+            file_path: msg.file_path,
+            process_name: msg.process_name,
+            host_id: msg.host_id,
+          },
+        }));
+      }
+    }
 
     if (msg.type === 'ai_analysis' && msg.event_id) {
+      // Remove from pending — analysis arrived
+      setAiPendingEvents(prev => {
+        const next = { ...prev };
+        delete next[msg.event_id];
+        return next;
+      });
       setAiAnalyses(prev => {
         if (prev.find(a => a.event_id === msg.event_id)) return prev;
         return [msg, ...prev].slice(0, 100);
@@ -51,7 +76,18 @@ export default function App() {
         const ts = aiTimestamps[a.event_id];
         return ts ? new Date(ts).getTime() > cutoff : true;
       }));
-    }, 30000); // check every 30s
+      // Also expire pending events older than 30s (Celery likely failed)
+      const pendingCutoff = Date.now() - 30000;
+      setAiPendingEvents(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(id => {
+          if (next[id]._addedAt && next[id]._addedAt < pendingCutoff) {
+            delete next[id];
+          }
+        });
+        return next;
+      });
+    }, 30000);
     return () => clearInterval(t);
   }, [aiTimestamps]);
 
@@ -70,6 +106,7 @@ export default function App() {
           health={aiHealth}
           newIds={aiNewIds}
           timestamps={aiTimestamps}
+          pendingEvents={aiPendingEvents}
           onHealthUpdate={setAiHealth}
         />
       );
