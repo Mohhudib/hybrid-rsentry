@@ -136,13 +136,10 @@ export default function AIAnalystPage({
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-white text-xl font-semibold flex items-center gap-2">
+          <h2 className="text-white text-xl font-semibold">
             🤖 AI Threat Analyst
-            <span className="text-xs px-2 py-0.5 rounded bg-indigo-900 text-indigo-300 font-medium">
-              LLaMA-3.1-70B
-            </span>
           </h2>
-          <p className="text-gray-500 text-sm mt-0.5">Automated threat classification via NVIDIA API</p>
+          <p className="text-gray-500 text-sm mt-0.5">Automated threat classification & behavior analysis</p>
         </div>
         <div className={`text-xs px-2 py-1 rounded font-medium ${connected ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-500'}`}>
           {connected ? 'Live' : 'Disconnected'}
