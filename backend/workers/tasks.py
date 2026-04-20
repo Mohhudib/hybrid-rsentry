@@ -9,7 +9,7 @@ from pathlib import Path
 # Load .env so Celery workers have access to API keys and DB URL
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+    load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 except ImportError:
     pass
 
