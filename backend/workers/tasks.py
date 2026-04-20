@@ -4,6 +4,14 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Load .env so Celery workers have access to API keys and DB URL
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except ImportError:
+    pass
 
 import redis as redis_lib
 from celery import Celery
@@ -224,6 +232,15 @@ def auto_ack_containment(host_id: str):
         }))
 
     _run(_inner())
+
+
+@celery_app.task(name="analyze_health_ai")
+def analyze_health_ai(recent_events: list):
+    result = ai_analyst.analyze_system_health(recent_events)
+    _redis().publish("rsentry:ai", json.dumps({
+        "type": "health_analysis",
+        **result,
+    }))
 
 
 @celery_app.task(name="auto_ack_by_event")
