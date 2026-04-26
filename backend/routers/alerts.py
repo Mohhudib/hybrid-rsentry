@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.database import get_db
@@ -36,6 +36,26 @@ async def list_alerts(
         q = q.where(Alert.acknowledged == acknowledged)
     result = await db.execute(q)
     return result.scalars().all()
+
+
+@router.get("/counts")
+async def alert_counts(db: AsyncSession = Depends(get_db)):
+    """Return exact active (unacknowledged) alert counts by severity — no limit."""
+    counts = {}
+    for sev in Severity:
+        result = await db.execute(
+            select(func.count()).select_from(Alert).where(
+                Alert.acknowledged == False,  # noqa: E712
+                Alert.severity == sev,
+            )
+        )
+        counts[sev.value] = result.scalar_one()
+
+    total_result = await db.execute(
+        select(func.count()).select_from(Alert).where(Alert.acknowledged == False)  # noqa: E712
+    )
+    counts["TOTAL"] = total_result.scalar_one()
+    return counts
 
 
 @router.get("/{alert_id}", response_model=AlertResponse)
@@ -68,7 +88,6 @@ async def analyze_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     if alert is None:
         raise HTTPException(404, "Alert not found")
 
-    # Load the linked event for full context
     event_data: dict = {
         "event_type": "UNKNOWN",
         "severity": alert.severity.value,
