@@ -18,8 +18,12 @@ export default function AlertFeed({ newAlert }) {
 
   const fetchAlerts = useCallback(async () => {
     try {
-      const params = filter !== 'ALL' ? { severity: filter } : {};
-      const { data } = await getAlerts({ ...params, limit: 100 });
+      const params = {
+        acknowledged: false,   // only show active unacknowledged alerts
+        limit: 100,
+        ...(filter !== 'ALL' ? { severity: filter } : {}),
+      };
+      const { data } = await getAlerts(params);
       setAlerts(data);
     } catch (err) {
       console.error('Failed to fetch alerts:', err);
@@ -28,9 +32,13 @@ export default function AlertFeed({ newAlert }) {
     }
   }, [filter]);
 
-  useEffect(() => { fetchAlerts(); }, [fetchAlerts]);
+  useEffect(() => {
+    fetchAlerts();
+    const t = setInterval(fetchAlerts, 5000);
+    return () => clearInterval(t);
+  }, [fetchAlerts]);
 
-  // Inject live WS alerts at the top
+  // Inject live WS alert at the top immediately
   useEffect(() => {
     if (!newAlert) return;
     setAlerts((prev) => {
@@ -53,26 +61,26 @@ export default function AlertFeed({ newAlert }) {
   const handleAcknowledge = async (id) => {
     try {
       await acknowledgeAlert(id);
-      setAlerts((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, acknowledged: true } : a))
-      );
+      // Remove immediately from feed since we only show active alerts
+      setAlerts((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
       console.error('Acknowledge failed:', err);
     }
   };
 
-  const filtered = filter === 'ALL'
-    ? alerts
-    : alerts.filter((a) => a.severity === filter);
-
-  const sorted = [...filtered].sort(
+  const sorted = [...alerts].sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
   );
 
   return (
     <div className="bg-gray-900 rounded-xl p-4 h-full flex flex-col">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-white text-lg font-semibold">Live Alert Feed</h2>
+        <div>
+          <h2 className="text-white text-lg font-semibold">Live Alert Feed</h2>
+          {alerts.length > 0 && (
+            <p className="text-gray-500 text-xs">{alerts.length} active</p>
+          )}
+        </div>
         <div className="flex gap-2">
           {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((s) => (
             <button
@@ -93,7 +101,7 @@ export default function AlertFeed({ newAlert }) {
       {loading ? (
         <p className="text-gray-400 text-sm">Loading alerts...</p>
       ) : sorted.length === 0 ? (
-        <p className="text-gray-500 text-sm italic">No alerts. System nominal.</p>
+        <p className="text-gray-500 text-sm italic">No active alerts. System nominal.</p>
       ) : (
         <div className="overflow-y-auto flex-1 space-y-2 pr-1">
           {sorted.map((alert) => (
@@ -112,18 +120,14 @@ export default function AlertFeed({ newAlert }) {
 function AlertRow({ alert, onAcknowledge }) {
   return (
     <div
-      className={`rounded-lg p-3 flex items-start justify-between gap-3 border ${
-        alert.acknowledged
-          ? 'border-gray-700 opacity-50'
-          : 'border-gray-600'
-      } ${alert._live ? 'animate-pulse-once' : ''}`}
+      className={`rounded-lg p-3 flex items-start justify-between gap-3 border border-gray-600 ${
+        alert._live ? 'animate-pulse-once' : ''
+      }`}
       style={{ backgroundColor: '#1e2130' }}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span
-            className={`text-xs font-bold px-2 py-0.5 rounded ${SEVERITY_COLORS[alert.severity]}`}
-          >
+          <span className={`text-xs font-bold px-2 py-0.5 rounded ${SEVERITY_COLORS[alert.severity]}`}>
             {alert.severity}
           </span>
           <span className="text-gray-300 text-xs font-mono truncate">{alert.host_id}</span>
@@ -133,14 +137,12 @@ function AlertRow({ alert, onAcknowledge }) {
         </div>
         <p className="text-gray-400 text-xs mt-1 truncate">ID: {alert.id?.slice(0, 8)}…</p>
       </div>
-      {!alert.acknowledged && (
-        <button
-          onClick={() => onAcknowledge(alert.id)}
-          className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-2 py-1 rounded transition-colors shrink-0"
-        >
-          ACK
-        </button>
-      )}
+      <button
+        onClick={() => onAcknowledge(alert.id)}
+        className="text-xs bg-gray-700 hover:bg-green-700 text-gray-300 hover:text-white px-2 py-1 rounded transition-colors shrink-0"
+      >
+        ACK
+      </button>
     </div>
   );
 }
