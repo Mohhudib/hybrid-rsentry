@@ -26,6 +26,7 @@ from agent.containment import contain, ContainmentResult
 from agent.entropy import EntropyEngine
 from agent.graph import FilesystemGraph
 from agent.lineage import score_for_event
+from agent.exceptions import is_whitelisted
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,10 @@ class RsentryEventHandler(FileSystemEventHandler):
 
     def _handle_event(self, event_type: str, src_path: str, pid: int = 0):
         canary_hit = self.fs_graph.is_canary(src_path)
+
+        # Skip whitelisted paths/processes unless it is a canary hit
+        if not canary_hit and is_whitelisted(src_path):
+            return
 
         # Lineage
         lineage_data = score_for_event(pid) if pid else {
