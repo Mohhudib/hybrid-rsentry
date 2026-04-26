@@ -77,6 +77,8 @@ async def acknowledge_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_
     alert.resolved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(alert)
+    from backend.workers.tasks import update_host_risk
+    update_host_risk.delay(alert.host_id)
     return alert
 
 
