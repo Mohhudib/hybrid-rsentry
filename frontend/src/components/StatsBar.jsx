@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getAlerts, getHosts } from '../api/client';
+import { getHosts } from '../api/client';
+import api from '../api/client';
 
 function StatCard({ label, value, color, sub }) {
   return (
@@ -18,41 +19,39 @@ export default function StatsBar({ liveAlert, liveEvent }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const [alertsRes, hostsRes] = await Promise.all([
-        getAlerts({ limit: 500, acknowledged: false }),
+      const [countsRes, hostsRes] = await Promise.all([
+        api.get('/api/alerts/counts'),
         getHosts({ limit: 100 }),
       ]);
-      const alerts = alertsRes.data;
+      const counts = countsRes.data;
       const hosts = hostsRes.data;
       setStats({
-        total: alerts.length,
-        critical: alerts.filter((a) => a.severity === 'CRITICAL').length,
-        high: alerts.filter((a) => a.severity === 'HIGH').length,
-        medium: alerts.filter((a) => a.severity === 'MEDIUM').length,
-        hosts: hosts.length,
+        total:     counts.TOTAL    ?? 0,
+        critical:  counts.CRITICAL ?? 0,
+        high:      counts.HIGH     ?? 0,
+        medium:    counts.MEDIUM   ?? 0,
+        hosts:     hosts.length,
         contained: hosts.filter((h) => h.is_contained).length,
       });
     } catch (_) {}
   }, []);
 
-  // Poll every 5 seconds
   useEffect(() => {
     fetchStats();
     const t = setInterval(fetchStats, 5000);
     return () => clearInterval(t);
   }, [fetchStats]);
 
-  // Refresh immediately on any new alert or event from WebSocket
   useEffect(() => { if (liveAlert) fetchStats(); }, [liveAlert, fetchStats]);
   useEffect(() => { if (liveEvent) fetchStats(); }, [liveEvent, fetchStats]);
 
   return (
     <div className="flex gap-4 mb-6 flex-wrap">
-      <StatCard label="Active Alerts" value={stats.total} color="text-white" sub="unacknowledged" />
-      <StatCard label="Critical" value={stats.critical} color="text-red-400" sub="immediate action" />
-      <StatCard label="High" value={stats.high} color="text-orange-400" sub="investigate now" />
-      <StatCard label="Medium" value={stats.medium} color="text-yellow-400" sub="monitor closely" />
-      <StatCard label="Active Hosts" value={stats.hosts} color="text-indigo-400" />
+      <StatCard label="Active Alerts" value={stats.total}    color="text-white"       sub="unacknowledged" />
+      <StatCard label="Critical"      value={stats.critical} color="text-red-400"     sub="immediate action" />
+      <StatCard label="High"          value={stats.high}     color="text-orange-400"  sub="investigate now" />
+      <StatCard label="Medium"        value={stats.medium}   color="text-yellow-400"  sub="monitor closely" />
+      <StatCard label="Active Hosts"  value={stats.hosts}    color="text-indigo-400" />
       <StatCard
         label="Contained"
         value={stats.contained}
