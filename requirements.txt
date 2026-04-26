@@ -22,7 +22,7 @@ python-multipart==0.0.9
 python-jose[cryptography]==3.3.0
 
 # Utilities
-aiohttp==3.11.18
+aiohttp==3.13.5
 python-dotenv==1.0.1
 structlog==24.2.0
 
