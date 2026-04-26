@@ -4,7 +4,7 @@
   "private": true,
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react-dom": "^19.2.5",
     "react-scripts": "5.0.1",
     "recharts": "^2.12.7",
     "axios": "^1.7.2",
