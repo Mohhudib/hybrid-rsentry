@@ -10,6 +10,7 @@
 [![Celery](https://img.shields.io/badge/Celery-5.x-37814A?style=flat-square)](https://docs.celeryq.dev)
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis)](https://redis.io)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql)](https://postgresql.org)
+[![Wiki](https://img.shields.io/badge/docs-wiki-blueviolet?style=flat-square)](https://github.com/Mohhudib/hybrid-rsentry/wiki)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 </div>
@@ -32,6 +33,7 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 - **Process Lineage Scoring** — Scores suspicious process ancestry chains to identify malicious parent-child relationships
 - **Markov Chain Repositioning** — Adaptively moves canary files to predicted high-risk directories based on observed filesystem access patterns
 - **Combined Threat Scoring** — Fuses entropy and lineage signals into a weighted threat score for accurate severity classification
+- **False Positive Suppression** — Comprehensive whitelist system (`agent/exceptions.py`) covering browsers, package managers, system paths, archive formats, and media files to eliminate noise on live Linux systems
 
 ### Auto-Containment Pipeline
 When a CRITICAL threat is detected, the system automatically executes a multi-stage containment sequence:
@@ -53,7 +55,7 @@ When a CRITICAL threat is detected, the system automatically executes a multi-st
 - Filesystem tree with canary zone indicators, entropy bars, and live flash on activity
 - Tactical Response Log with procedure names and severity filters
 - Alert management with per-alert ACK and bulk "Acknowledge All" button
-- Host risk panel with radial risk score gauge
+- Host risk panel with radial risk score gauge that updates after every acknowledgement
 - AI Analyst page with pending spinners, error cards, and 4-minute analysis persistence
 
 ---
@@ -156,13 +158,14 @@ uvicorn backend.main:app --reload
 
 **6. Start Celery workers**
 ```bash
-set -a && source .env && set +a
 PYTHONPATH=. celery -A backend.workers.tasks:celery_app worker --loglevel=info
 ```
 
 **7. Start the agent**
 ```bash
-sudo venv/bin/python -m agent.monitor
+# Use sudo -E to preserve environment variables (including WATCH_PATH)
+set -a && source .env && set +a
+sudo -E venv/bin/python -m agent.monitor
 ```
 
 **8. Start the frontend**
@@ -182,11 +185,13 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string (asyncpg) |
 | `REDIS_URL` | Redis connection string |
-| `AI_API_KEY` | API key for AI threat analysis |
+| `NVIDIA_API_KEY` | API key for live event AI analysis |
+| `NVIDIA_API_KEY_ALERTS` | API key for on-demand alert AI analysis |
 | `HOST_ID` | Identifier for this endpoint |
-| `WATCH_PATH` | Directory to monitor (keep outside project folder) |
+| `WATCH_PATH` | Directory to monitor — **must be outside the project folder** |
 | `CANARY_COUNT` | Number of canary files to place (default: 15) |
 | `BACKEND_URL` | Backend URL for the agent to report to |
+| `SECRET_KEY` | JWT secret key (32+ chars for production) |
 
 ---
 
@@ -212,6 +217,7 @@ hybrid-rsentry/
 │   ├── lineage.py      # Process lineage scorer
 │   ├── adaptive.py     # Markov chain repositioner
 │   ├── containment.py  # Auto-containment pipeline
+│   ├── exceptions.py   # Whitelist rules — suppresses false positives
 │   └── client.py       # Backend HTTP client
 ├── backend/
 │   ├── main.py         # FastAPI app entry point
@@ -240,6 +246,10 @@ Is it a canary file? ──YES──▶ CRITICAL alert → Auto-containment
       │
       NO
       ▼
+Is path/process whitelisted? ──YES──▶ Skip (suppress false positive)
+      │
+      NO
+      ▼
 Entropy delta > threshold?
       │
       ├──YES──▶ Lineage score >= 40? ──YES──▶ COMBINED_ALERT (CRITICAL/HIGH)
@@ -251,6 +261,20 @@ Entropy delta > threshold?
       ▼
 AI analyst classifies threat → publishes result to dashboard
 ```
+
+---
+
+## Documentation
+
+Full project documentation is available in the [GitHub Wiki](https://github.com/Mohhudib/hybrid-rsentry/wiki), covering:
+
+- [Architecture deep-dive](https://github.com/Mohhudib/hybrid-rsentry/wiki/Architecture)
+- [Detection Engine internals](https://github.com/Mohhudib/hybrid-rsentry/wiki/Detection-Engine)
+- [Auto-Containment pipeline](https://github.com/Mohhudib/hybrid-rsentry/wiki/Auto-Containment)
+- [AI Threat Analyst](https://github.com/Mohhudib/hybrid-rsentry/wiki/AI-Threat-Analyst)
+- [Installation & Setup](https://github.com/Mohhudib/hybrid-rsentry/wiki/Installation-and-Setup)
+- [API Reference](https://github.com/Mohhudib/hybrid-rsentry/wiki/API-Reference)
+- [Known Issues & Fixes](https://github.com/Mohhudib/hybrid-rsentry/wiki/Known-Issues-and-Fixes)
 
 ---
 
