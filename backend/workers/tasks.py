@@ -6,13 +6,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Load .env so Celery workers have access to API keys and DB URL
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
-except ImportError:
-    pass
-
 import redis as redis_lib
 from celery import Celery
 from sqlalchemy import select, func
@@ -24,10 +17,26 @@ from backend.services import ai_analyst
 
 logger = logging.getLogger(__name__)
 
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
+
+def _env(key: str, default: str = "") -> str:
+    """Read env var, falling back to .env file directly — no dotenv dependency."""
+    value = os.getenv(key, "")
+    if value:
+        return value
+    if _ENV_FILE.exists():
+        for line in _ENV_FILE.read_text().splitlines():
+            line = line.strip()
+            if line.startswith(f"{key}=") and not line.startswith("#"):
+                return line[len(f"{key}="):].strip().strip('"').strip("'")
+    return default
+
+
 celery_app = Celery(
     "rsentry",
-    broker=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
-    backend=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+    broker=_env("REDIS_URL", "redis://localhost:6379/0"),
+    backend=_env("REDIS_URL", "redis://localhost:6379/0"),
 )
 celery_app.conf.task_serializer = "json"
 celery_app.conf.result_serializer = "json"
@@ -40,10 +49,10 @@ _SessionLocal = None
 def _get_engine():
     global _engine, _SessionLocal
     if _engine is None:
-        _engine = create_async_engine(
-            os.getenv("DATABASE_URL", ""),
-            poolclass=NullPool,
-        )
+        db_url = _env("DATABASE_URL")
+        if not db_url:
+            raise RuntimeError("DATABASE_URL not found in environment or .env file")
+        _engine = create_async_engine(db_url, poolclass=NullPool)
         _SessionLocal = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine, _SessionLocal
 
@@ -59,7 +68,7 @@ def _run(coro):
 
 def _redis():
     return redis_lib.from_url(
-        os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        _env("REDIS_URL", "redis://localhost:6379/0"),
         decode_responses=True,
     )
 
