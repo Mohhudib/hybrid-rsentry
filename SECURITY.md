@@ -10,7 +10,7 @@
 
 If you discover a security vulnerability in Hybrid R-Sentry, **do not open a public issue**.
 
-Please report it privately by emailing: **itemsh0@gmail.com**
+Please report it privately by emailing: **mohammadhudib960@gmail.com**
 
 Include the following in your report:
 - Description of the vulnerability
