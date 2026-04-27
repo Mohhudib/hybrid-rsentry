@@ -23,7 +23,7 @@ python-jose[cryptography]==3.3.0
 
 # Utilities
 aiohttp==3.11.18
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 structlog==24.2.0
 
 # AI Analysis
