@@ -183,7 +183,8 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string (asyncpg) |
+| `POSTGRES_PASSWORD` | PostgreSQL password — used by Docker Compose and `DATABASE_URL` |
+| `DATABASE_URL` | PostgreSQL connection string (asyncpg) — **required**, no default |
 | `REDIS_URL` | Redis connection string |
 | `NVIDIA_API_KEY` | API key for live event AI analysis |
 | `NVIDIA_API_KEY_ALERTS` | API key for on-demand alert AI analysis |
@@ -191,7 +192,7 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 | `WATCH_PATH` | Directory to monitor — **must be outside the project folder** |
 | `CANARY_COUNT` | Number of canary files to place (default: 15) |
 | `BACKEND_URL` | Backend URL for the agent to report to |
-| `SECRET_KEY` | JWT secret key (32+ chars for production) |
+| `SECRET_KEY` | Secret key (32+ chars for production) |
 
 ---
 
@@ -275,6 +276,22 @@ Full project documentation is available in the [GitHub Wiki](https://github.com/
 - [Installation & Setup](https://github.com/Mohhudib/hybrid-rsentry/wiki/Installation-and-Setup)
 - [API Reference](https://github.com/Mohhudib/hybrid-rsentry/wiki/API-Reference)
 - [Known Issues & Fixes](https://github.com/Mohhudib/hybrid-rsentry/wiki/Known-Issues-and-Fixes)
+
+---
+
+## Security
+
+A security audit of this repository was conducted in May 2026. The following issues were identified and fixed:
+
+| Fix | Detail |
+|---|---|
+| Removed `python-jose` dependency | Had CVE-2024-33664 and CVE-2024-33663 (algorithm confusion attacks); was never imported |
+| Removed hardcoded DB password fallback | `database.py` previously fell back to a known dev password if `DATABASE_URL` was unset — now raises a clear error |
+| Parameterised Docker Compose credentials | `docker-compose.yml` now reads `${POSTGRES_PASSWORD}` from the environment instead of embedding a literal password |
+
+**GitHub Dependabot alerts (26):** All are inside `react-scripts`' build toolchain (`jest`, `webpack-dev-server`, `workbox`). They are not present in the production React build and cannot be fixed without replacing Create React App entirely. They do not represent runtime risk.
+
+For reporting vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ---
 
