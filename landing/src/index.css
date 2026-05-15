@@ -1,0 +1,224 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS Custom Properties ─────────────────────────────── */
+:root {
+  --bg: #000005;
+  --cyan: #00f5ff;
+  --threat: #ff1744;
+  --ai: #b537f2;
+  --safe: #00ff88;
+  --gold: #ffd700;
+}
+
+/* ─── Base Reset ────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background-color: var(--bg);
+  color: #e2e8f0;
+  font-family: 'Space Grotesk', sans-serif;
+  overflow-x: hidden;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #000010; }
+::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 3px; }
+
+/* ─── Animated Radar Grid ───────────────────────────────── */
+.animated-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(0, 245, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.07) 1px, transparent 1px);
+  background-size: 60px 60px;
+  animation: gridScroll 20s linear infinite;
+}
+
+@keyframes gridScroll {
+  0%   { background-position: 0 0; }
+  100% { background-position: 60px 60px; }
+}
+
+/* ─── Scanlines Overlay ─────────────────────────────────── */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+}
+
+/* ─── Custom Cursor ─────────────────────────────────────── */
+.cursor-dot {
+  position: fixed;
+  top: 0; left: 0;
+  width: 20px; height: 20px;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+}
+.cursor-dot::before,
+.cursor-dot::after {
+  content: '';
+  position: absolute;
+  background: var(--cyan);
+  border-radius: 1px;
+  box-shadow: 0 0 8px var(--cyan), 0 0 16px var(--cyan);
+  transition: transform 0.1s;
+}
+/* horizontal bar */
+.cursor-dot::before {
+  width: 20px; height: 1.5px;
+  top: 50%; left: 0;
+  transform: translateY(-50%);
+}
+/* vertical bar */
+.cursor-dot::after {
+  width: 1.5px; height: 20px;
+  left: 50%; top: 0;
+  transform: translateX(-50%);
+}
+.cursor-dot.hovering::before,
+.cursor-dot.hovering::after {
+  box-shadow: 0 0 16px var(--cyan), 0 0 32px var(--cyan), 0 0 64px var(--cyan);
+  transform-origin: center;
+}
+
+/* ─── Glow Utilities ────────────────────────────────────── */
+.glow-cyan  { text-shadow: 0 0 10px #00f5ff, 0 0 30px #00f5ff55; }
+.glow-red   { text-shadow: 0 0 10px #ff1744, 0 0 30px #ff174455; }
+.glow-violet{ text-shadow: 0 0 10px #b537f2, 0 0 30px #b537f255; }
+.glow-gold  { text-shadow: 0 0 10px #ffd700, 0 0 30px #ffd70055; }
+.glow-green { text-shadow: 0 0 10px #00ff88, 0 0 30px #00ff8855; }
+
+.glow-box-cyan   { box-shadow: 0 0 20px #00f5ff40, 0 0 60px #00f5ff15; }
+.glow-box-red    { box-shadow: 0 0 20px #ff174440, 0 0 60px #ff174415; }
+.glow-box-violet { box-shadow: 0 0 20px #b537f240, 0 0 60px #b537f215; }
+.glow-box-gold   { box-shadow: 0 0 20px #ffd70040, 0 0 60px #ffd70015; }
+.glow-box-green  { box-shadow: 0 0 20px #00ff8840, 0 0 60px #00ff8815; }
+
+/* ─── Glassmorphism Base ────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ─── Section Base ──────────────────────────────────────── */
+.section {
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Blink Animation ───────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.animate-blink { animation: blink 1.2s step-end infinite; }
+
+/* ─── Glitch Text ───────────────────────────────────────── */
+.glitch-wrapper { position: relative; display: inline-block; }
+.glitch-wrapper::before,
+.glitch-wrapper::after {
+  content: attr(data-text);
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+.glitch-wrapper::before {
+  color: var(--threat);
+  animation: glitch-before 3s steps(1) infinite;
+}
+.glitch-wrapper::after {
+  color: var(--cyan);
+  animation: glitch-after 3s steps(1) infinite;
+}
+@keyframes glitch-before {
+  0%, 90%, 100% { clip-path: inset(100% 0 0 0); transform: none; }
+  92% { clip-path: inset(10% 0 60% 0); transform: translateX(-3px); }
+  94% { clip-path: inset(60% 0 20% 0); transform: translateX(3px); }
+  96% { clip-path: inset(30% 0 50% 0); transform: translateX(-2px); }
+}
+@keyframes glitch-after {
+  0%, 87%, 100% { clip-path: inset(100% 0 0 0); transform: none; }
+  89% { clip-path: inset(40% 0 30% 0); transform: translateX(3px); }
+  91% { clip-path: inset(70% 0 10% 0); transform: translateX(-3px); }
+  93% { clip-path: inset(20% 0 60% 0); transform: translateX(2px); }
+}
+
+/* ─── Hex Shape ─────────────────────────────────────────── */
+.hex {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* ─── Card 3D Flip ──────────────────────────────────────── */
+.flip-card { perspective: 1000px; }
+.flip-card-inner {
+  position: relative;
+  width: 100%; height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+.flip-card:hover .flip-card-inner { transform: rotateY(180deg); }
+.flip-card-front,
+.flip-card-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-card-back { transform: rotateY(180deg); }
+
+/* ─── SVG Pulse Dash ────────────────────────────────────── */
+@keyframes dash-travel {
+  0%   { stroke-dashoffset: 200; }
+  100% { stroke-dashoffset: 0; }
+}
+.pulse-line {
+  stroke-dasharray: 10 190;
+  animation: dash-travel 2s linear infinite;
+}
+
+/* ─── Shake ─────────────────────────────────────────────── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0) translateY(-20px); }
+  25%       { transform: translateX(-3px) translateY(-20px); }
+  75%       { transform: translateX(3px) translateY(-20px); }
+}
+.shake { animation: shake 0.4s ease-in-out infinite; }
+
+/* ─── Counter Roll ──────────────────────────────────────── */
+.stat-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ─── Terminal ──────────────────────────────────────────── */
+.terminal-body {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* ─── Hide default scrollbar for alert feed ─────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
