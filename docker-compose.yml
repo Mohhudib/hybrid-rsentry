@@ -74,6 +74,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://rsentry:${POSTGRES_PASSWORD:-rsentry_pass}@postgres:5432/rsentry_db
       REDIS_URL: redis://redis:6379/0
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_API_KEY_ALERTS: ${NVIDIA_API_KEY_ALERTS:-}
     depends_on:
       postgres:
         condition: service_healthy

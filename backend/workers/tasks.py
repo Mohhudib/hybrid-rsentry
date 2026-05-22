@@ -163,11 +163,15 @@ def analyze_event_ai(event_id: str, event_data: dict):
 def analyze_alert_ai(alert_id: str, event_data: dict):
     result = ai_analyst.analyze_alert(event_data)
     r = _redis()
-    r.publish("rsentry:ai", json.dumps({
+    payload = {
         "type": "ai_analysis",
         "alert_id": alert_id,
         **result,
-    }))
+    }
+    # Include event_id so the AI Analyst page can match and display the analysis card
+    if event_data.get("event_id"):
+        payload["event_id"] = event_data["event_id"]
+    r.publish("rsentry:ai", json.dumps(payload))
 
     if result.get("analysis_failed"):
         return

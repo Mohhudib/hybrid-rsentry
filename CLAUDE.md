@@ -25,11 +25,11 @@ A multi-process Python + React application with five processes that must all be 
 # Terminal 1
 cd ~/hybrid-rsentry && docker compose up -d
 
-# Terminal 2
-cd ~/hybrid-rsentry && source venv/bin/activate && uvicorn backend.main:app --reload
+# Terminal 2 — source .env first so DATABASE_URL and NVIDIA keys reach uvicorn
+cd ~/hybrid-rsentry && set -a && source .env && set +a && source venv/bin/activate && uvicorn backend.main:app --reload
 
-# Terminal 3
-cd ~/hybrid-rsentry && PYTHONPATH=. celery -A backend.workers.tasks:celery_app worker --loglevel=info
+# Terminal 3 — source .env first so DATABASE_URL and NVIDIA keys reach Celery
+cd ~/hybrid-rsentry && set -a && source .env && set +a && PYTHONPATH=. celery -A backend.workers.tasks:celery_app worker --loglevel=info
 
 # Terminal 4 — sudo -E is mandatory to preserve WATCH_PATH and other env vars
 cd ~/hybrid-rsentry && set -a && source .env && set +a && sudo -E ~/hybrid-rsentry/venv/bin/python -m agent.monitor
@@ -108,12 +108,13 @@ Symptom: git commands error; files named `AAA_*.txt` inside `.git/refs/`.
 Fix: `find .git/refs -name "AAA_*" -delete`
 
 **Backend crashes immediately on startup with RuntimeError**
-Cause: `DATABASE_URL` is not set — the backend has no fallback default.
-Fix: confirm `.env` exists and contains `DATABASE_URL`, then restart uvicorn.
+Cause: `DATABASE_URL` is not set — the backend has no fallback default. `database.py` checks it at module import time.
+Fix: always use `set -a && source .env && set +a` before starting uvicorn (see startup sequence above).
 
-**Celery task can't find env vars**
-Cause: Celery reads `.env` directly via `_env()` in `tasks.py`, not via python-dotenv or the shell environment.
-Fix: confirm `.env` exists at the project root (`~/hybrid-rsentry/.env`).
+**Celery crashes on startup or AI analysis fails silently**
+Cause: `DATABASE_URL` (needed at import time) and `NVIDIA_API_KEY`/`NVIDIA_API_KEY_ALERTS` are not in the shell environment.
+Note: `_env()` in tasks.py reads the .env file for database/redis/celery config, but `database.py` and `ai_analyst.py` use `os.getenv()` directly.
+Fix: always use `set -a && source .env && set +a` before starting Celery (see startup sequence above).
 
 **NVIDIA API returns 429**
 Cause: rate limit hit. The AI analyst has built-in retry logic.

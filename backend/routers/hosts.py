@@ -56,6 +56,19 @@ async def host_risk_summary(host_id: str, db: AsyncSession = Depends(get_db)):
         )
         alert_counts[sev.value] = count_result.scalar_one()
 
+    total_alert_result = await db.execute(
+        select(func.count()).select_from(Alert).where(
+            Alert.host_id == host_id,
+            Alert.acknowledged == False,  # noqa: E712
+        )
+    )
+    total_alerts = total_alert_result.scalar_one()
+
+    event_count_result = await db.execute(
+        select(func.count()).select_from(Event).where(Event.host_id == host_id)
+    )
+    total_events = event_count_result.scalar_one()
+
     # Recent critical events
     recent_result = await db.execute(
         select(Event)
@@ -71,6 +84,8 @@ async def host_risk_summary(host_id: str, db: AsyncSession = Depends(get_db)):
         "is_contained": host.is_contained,
         "last_seen": host.last_seen.isoformat(),
         "open_alerts": alert_counts,
+        "alert_count": total_alerts,
+        "event_count": total_events,
         "recent_critical_events": [
             {
                 "id": str(e.id),

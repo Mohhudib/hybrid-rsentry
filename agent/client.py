@@ -168,7 +168,7 @@ class AgentClient:
         return self.send_event(
             event_type="CONTAINMENT_COMPLETE",
             pid=pid,
-            process_name=result_dict.get("name", ""),
+            process_name="",
             file_path="",
             lineage_score=0.0,
             entropy_delta=0.0,
