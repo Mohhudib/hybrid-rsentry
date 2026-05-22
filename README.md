@@ -200,8 +200,8 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 
 | Severity | Trigger | Auto-Action |
 |---|---|---|
-| CRITICAL | Canary file touched | Immediate auto-containment |
-| HIGH | Entropy spike + high lineage score | AI analysis + alert |
+| CRITICAL | Canary file touched **or** combined threat score ≥ 70 | Immediate auto-containment |
+| HIGH | Combined score 40–69 (entropy + lineage) | AI analysis + alert |
 | MEDIUM | Entropy spike alone | AI analysis + alert |
 | LOW | Heartbeat / system events | Logged only |
 
@@ -256,7 +256,7 @@ Entropy delta > threshold?
       ├──YES──▶ Lineage score >= 40? ──YES──▶ COMBINED_ALERT (CRITICAL/HIGH)
       │                               └──NO───▶ ENTROPY_SPIKE (MEDIUM)
       │
-      └──NO───▶ Lineage score >= 40? ──YES──▶ PROCESS_ANOMALY (HIGH)
+      └──NO───▶ Lineage score >= 40? ──YES──▶ PROCESS_ANOMALY (CRITICAL/HIGH)
                                      └──NO───▶ Skip (low signal)
       │
       ▼

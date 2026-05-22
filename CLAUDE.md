@@ -133,8 +133,8 @@ This is correct behaviour. The score recalculates via Celery on the next incomin
 
 | Severity | Trigger | Auto-action |
 |---|---|---|
-| CRITICAL | Any canary file (AAA_*.txt) touched | Immediate: SIGSTOP → iptables DROP → SIGKILL |
-| HIGH | Entropy spike + lineage score ≥ 40 | AI analysis queued, alert record created |
+| CRITICAL | Canary file (AAA_*.txt) touched **or** combined threat score ≥ 70 | Immediate: SIGSTOP → iptables DROP → SIGKILL |
+| HIGH | Combined score 40–69 (entropy + lineage) | AI analysis queued, alert record created |
 | MEDIUM | Entropy spike alone | AI analysis queued, alert record created |
 | LOW | Heartbeat / system events | Logged only, no alert record |
 
