@@ -78,6 +78,12 @@ def _get_client_events():
     return _client_events
 
 
+def _reset_client_events():
+    global _client_events
+    _client_events = None
+    logger.warning("Event client cache cleared — will reload key on next call")
+
+
 def _get_client_alerts():
     global _client_alerts
     if _client_alerts is None:
@@ -91,6 +97,12 @@ def _get_client_alerts():
             _client_alerts = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
             _client_alerts._model = NVIDIA_MODEL
     return _client_alerts
+
+
+def _reset_client_alerts():
+    global _client_alerts
+    _client_alerts = None
+    logger.warning("Alert client cache cleared — will reload key on next call")
 
 
 def _get_client_cerebras():
@@ -111,11 +123,13 @@ def _call_with_fallback(clients: list, prompt: str) -> dict:
         try:
             return _call_nvidia(client, prompt)
         except AuthenticationError as e:
-            logger.error("Client %d auth failed, trying next", i + 1)
-            last_exc = e
+            # AUTH_ERROR = مشكلة في الـ key، نوقف فوراً ما نكمل
+            logger.error("Client %d auth failed — invalid key, stopping fallback", i + 1)
+            raise
         except RateLimitError as e:
             logger.warning("Client %d rate limited, trying next", i + 1)
             last_exc = e
+            time.sleep(1)  # انتظر قليل قبل الـ client الثاني
         except APIConnectionError as e:
             logger.warning("Client %d connection failed, trying next", i + 1)
             last_exc = e
@@ -283,6 +297,9 @@ def _build_health_prompt(recent_events: list[dict]) -> str:
     severities = [e.get("severity") for e in recent_events]
     critical_count = severities.count("CRITICAL")
     high_count = severities.count("HIGH")
+
+    if not recent_events:
+        return '''{"status":"STABLE","threat_type":"None","behavior_summary":"No recent events to analyze.","risk_level":"LOW","recommendation":"Continue monitoring.","confidence":"LOW"}''' 
 
     # أعلى entropy delta
     max_entropy = max((e.get("entropy_delta", 0) for e in recent_events), default=0)
