@@ -162,6 +162,10 @@ def analyze_event_ai(event_id: str, event_data: dict):
     # بعدين نحلل بالخلفية
     result = ai_analyst.analyze_event(event_data)
 
+    # نخزن الـ AI analysis في Redis عشان الـ forensic export يلاقيه
+    r.set(f"rsentry:ai_analysis:{event_data.get('event_id', event_id)}", 
+          json.dumps(result), ex=86400)  # تنتهي بعد 24 ساعة
+
     # نبعث النتيجة الحقيقية لما تجهز
     r.publish("rsentry:ai", json.dumps({
         "type": "ai_analysis_update",

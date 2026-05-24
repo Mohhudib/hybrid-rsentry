@@ -174,6 +174,18 @@ async def forensic_export(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db
     )
     evidence_list = evidence_result.scalars().all()
 
+    # جيب الـ AI analysis من Redis لو موجود
+    from backend.services.ai_analyst import _get_redis
+    ai_analysis = None
+    try:
+        r = _get_redis()
+        ai_data = r.get(f"rsentry:ai_analysis:{alert.event_id}")
+        if ai_data:
+            import json as _json
+            ai_analysis = _json.loads(ai_data)
+    except Exception:
+        pass
+
     return {
         "alert": {
             "id": str(alert.id),
@@ -184,6 +196,7 @@ async def forensic_export(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db
             "created_at": alert.created_at.isoformat(),
             "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
         },
+        "ai_analysis": ai_analysis,
         "evidence": [
             {
                 "id": str(e.id),

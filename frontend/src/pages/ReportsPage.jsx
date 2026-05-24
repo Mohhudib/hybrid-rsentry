@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getAlerts, forensicExport } from '../api/client';
 import { format } from 'date-fns';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const SEVERITY_COLORS = {
   CRITICAL: 'bg-red-600 text-white',
@@ -19,6 +21,44 @@ function exportAllAsJSON(alerts) {
   URL.revokeObjectURL(url);
 }
 
+function exportAsPDF(alerts, filtered) {
+  const doc = new jsPDF();
+  const now = format(new Date(), 'MMM d yyyy HH:mm');
+
+  // Header
+  doc.setFontSize(16);
+  doc.setTextColor(30, 30, 30);
+  doc.text('Hybrid R-Sentry — Incident Report', 14, 18);
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Generated: ${now}`, 14, 25);
+
+  // Summary
+  const active = alerts.filter(a => !a.acknowledged).length;
+  const critical = alerts.filter(a => a.severity === 'CRITICAL' && !a.acknowledged).length;
+  const high = alerts.filter(a => a.severity === 'HIGH' && !a.acknowledged).length;
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  doc.text(`Total Alerts: ${alerts.length}   Active: ${active}   Critical: ${critical}   High: ${high}`, 14, 33);
+
+  // Table
+  autoTable(doc, {
+    startY: 40,
+    head: [['Alert ID', 'Host', 'Severity', 'Status', 'Time']],
+    body: filtered.map(a => [
+      a.id.slice(0, 8) + '...',
+      a.host_id,
+      a.severity,
+      a.acknowledged ? 'ACK' : 'PENDING',
+      format(new Date(a.created_at), 'MMM d, HH:mm:ss'),
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [79, 70, 229] },
+  });
+
+  doc.save(`rsentry_report_${Date.now()}.pdf`);
+}
+
 export default function ReportsPage() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +66,8 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(null);
   const [filterSev, setFilterSev] = useState('ALL');
   const [filterAck, setFilterAck] = useState('ALL');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const fetchAlerts = useCallback(async () => {
     try {
@@ -79,6 +121,11 @@ export default function ReportsPage() {
       if (filterAck === 'PENDING') return !a.acknowledged;
       if (filterAck === 'ACKED') return a.acknowledged;
       return true;
+    })
+    .filter((a) => {
+      if (dateFrom && new Date(a.created_at) < new Date(dateFrom)) return false;
+      if (dateTo && new Date(a.created_at) > new Date(dateTo + 'T23:59:59')) return false;
+      return true;
     });
 
   // Summary counts — use unacked only to match dashboard StatsBar
@@ -102,6 +149,12 @@ export default function ReportsPage() {
               Export Selected ({selected.size})
             </button>
           )}
+          <button
+            onClick={() => exportAsPDF(alerts, filtered)}
+            className="px-4 py-2 text-sm bg-red-700 hover:bg-red-600 text-white rounded-lg font-medium transition-colors"
+          >
+            Export PDF
+          </button>
           <button
             onClick={() => exportAllAsJSON(filtered)}
             className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
@@ -163,7 +216,30 @@ export default function ReportsPage() {
             </button>
           ))}
         </div>
-        <p className="ml-auto text-xs text-gray-500">{filtered.length} alerts</p>
+        <div className="flex items-center gap-2 ml-auto">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="bg-gray-800 text-gray-300 text-xs px-2 py-1.5 rounded-lg border border-gray-700"
+          />
+          <span className="text-gray-500 text-xs">to</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="bg-gray-800 text-gray-300 text-xs px-2 py-1.5 rounded-lg border border-gray-700"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="text-xs text-gray-500 hover:text-white"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-500">{filtered.length} alerts</p>
       </div>
 
       {/* Table */}
