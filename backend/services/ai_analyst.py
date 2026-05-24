@@ -273,13 +273,58 @@ def analyze_system_health(recent_events: list[dict]) -> dict:
         _rate_limit(_RATE_KEY_EVENTS)
         result = _call_nvidia(_get_client_events(), _build_health_prompt(recent_events))
         return result
+    except AuthenticationError:
+        logger.error("Health API key invalid or expired — check AI_API_KEY")
+        return {
+            "status": "UNKNOWN",
+            "threat_type": "—",
+            "behavior_summary": "Health analysis unavailable: API key invalid or expired.",
+            "risk_level": "UNKNOWN",
+            "recommendation": "Check AI_API_KEY configuration.",
+            "confidence": "LOW",
+            "error_type": "AUTH_ERROR",
+        }
+    except RateLimitError:
+        logger.warning("Health API rate limit reached")
+        return {
+            "status": "UNKNOWN",
+            "threat_type": "—",
+            "behavior_summary": "Health analysis unavailable: Rate limit reached.",
+            "risk_level": "UNKNOWN",
+            "recommendation": "Wait and retry.",
+            "confidence": "LOW",
+            "error_type": "RATE_LIMIT",
+        }
+    except APIConnectionError:
+        logger.warning("Health API connection failed")
+        return {
+            "status": "UNKNOWN",
+            "threat_type": "—",
+            "behavior_summary": "Health analysis unavailable: Connection failed.",
+            "risk_level": "UNKNOWN",
+            "recommendation": "Check network and API URL.",
+            "confidence": "LOW",
+            "error_type": "CONNECTION_ERROR",
+        }
+    except json.JSONDecodeError:
+        logger.warning("Health API returned invalid JSON")
+        return {
+            "status": "UNKNOWN",
+            "threat_type": "—",
+            "behavior_summary": "Health analysis unavailable: Invalid response from AI.",
+            "risk_level": "UNKNOWN",
+            "recommendation": "Retry the request.",
+            "confidence": "LOW",
+            "error_type": "JSON_ERROR",
+        }
     except Exception as exc:
-        logger.warning("NVIDIA health analysis failed: %s", exc)
+        logger.warning("Health analysis failed: %s", exc)
         return {
             "status": "UNKNOWN",
             "threat_type": "—",
             "behavior_summary": f"Health analysis unavailable: {str(exc)[:80]}",
             "risk_level": "UNKNOWN",
-            "recommendation": "Check NVIDIA_API_KEY configuration.",
+            "recommendation": "Check API configuration.",
             "confidence": "LOW",
+            "error_type": "UNKNOWN",
         }
