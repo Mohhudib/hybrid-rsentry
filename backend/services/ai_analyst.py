@@ -24,11 +24,14 @@ NVIDIA_BASE_URL   = "https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL      = "meta/llama-3.1-70b-instruct"
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 CEREBRAS_MODEL    = "llama-3.3-70b"
-_RATE_DELAY = 3.0  # seconds between calls per key
+GROQ_RATE_DELAY     = 0.5  # سريع
+CEREBRAS_RATE_DELAY = 0.5  # الأسرع
+NVIDIA_RATE_DELAY   = 3.0  # أبطأ
 
-# Rate limit Redis keys — one per API key so they're fully independent
-_RATE_KEY_EVENTS = "rsentry:nvidia_last_call_events"
-_RATE_KEY_ALERTS = "rsentry:nvidia_last_call_alerts"
+# Rate limit Redis keys — one per provider
+_RATE_KEY_GROQ     = "rsentry:groq_last_call"
+_RATE_KEY_NVIDIA   = "rsentry:nvidia_last_call"
+_RATE_KEY_CEREBRAS = "rsentry:cerebras_last_call"
 
 _client_events   = None   # for live event analysis
 _client_alerts   = None   # for alert analysis
@@ -142,20 +145,16 @@ def _call_with_fallback(clients: list, prompt: str) -> dict:
     raise last_exc or RuntimeError("All clients failed")
 
 
-def _rate_limit(redis_key: str):
-    """Block until a rate limit slot is atomically claimed for this key.
-
-    Uses a Lua script so the check-and-set is atomic — two concurrent Celery
-    workers cannot both pass simultaneously.
-    """
+def _rate_limit(redis_key: str, delay: float = NVIDIA_RATE_DELAY):
+    """Block until a rate limit slot is atomically claimed for this key."""
     r = _get_redis()
     script = r.register_script(_RATE_LIMIT_LUA)
     while True:
-        wait_str = script(keys=[redis_key], args=[str(_RATE_DELAY), str(time.time())])
+        wait_str = script(keys=[redis_key], args=[str(delay), str(time.time())])
         wait = float(wait_str)
         if wait <= 0:
             break
-        logger.debug("NVIDIA rate limit (%s): waiting %.1fs", redis_key, wait)
+        logger.debug("Rate limit (%s): waiting %.1fs", redis_key, wait)
         time.sleep(wait)
 
 
@@ -235,9 +234,9 @@ def analyze_event(event: dict) -> dict:
     Returns {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
-        _rate_limit(_RATE_KEY_EVENTS)
+        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
         result = _call_with_fallback(
-            [_get_client_events(), _get_client_alerts(), _get_client_cerebras()],
+            [_get_client_cerebras(), _get_client_events(), _get_client_alerts()],
             build_prompt(event)
         )
         return result
@@ -265,9 +264,9 @@ def analyze_alert(event: dict) -> dict:
     Returns {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
-        _rate_limit(_RATE_KEY_ALERTS)
+        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
         result = _call_with_fallback(
-            [_get_client_alerts(), _get_client_events(), _get_client_cerebras()],
+            [_get_client_cerebras(), _get_client_alerts(), _get_client_events()],
             build_prompt(event)
         )
         return result
@@ -340,9 +339,9 @@ def analyze_system_health(recent_events: list[dict]) -> dict:
     Rate-limited on the same key as live events.
     """
     try:
-        _rate_limit(_RATE_KEY_EVENTS)
+        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
         result = _call_with_fallback(
-            [_get_client_events(), _get_client_alerts(), _get_client_cerebras()],
+            [_get_client_cerebras(), _get_client_events(), _get_client_alerts()],
             _build_health_prompt(recent_events)
         )
         return result
