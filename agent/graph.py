@@ -20,15 +20,40 @@ class FilesystemGraph:
 
     def _cleanup_old_canaries(self):
         """Delete all known canary files before placing new ones to avoid orphans on restart."""
+        removed = 0
         try:
+            # First — remove known canary paths from previous run
+            for path in list(self.canary_paths):
+                try:
+                    if path.exists():
+                        path.unlink()
+                        removed += 1
+                        logger.debug("Removed known canary: %s", path)
+                except OSError as exc:
+                    logger.warning("Could not remove canary %s: %s", path, exc)
+
+            # Second — fallback scan for AAA_ prefixed files (backward compatibility)
             for path in self.root.rglob(f"{CANARY_PREFIX}*{CANARY_SUFFIX}"):
                 try:
                     path.unlink()
-                    logger.debug("Removed old canary: %s", path)
+                    removed += 1
+                    logger.debug("Removed old AAA_ canary: %s", path)
                 except OSError as exc:
                     logger.warning("Could not remove canary %s: %s", path, exc)
+
+            # Third — scan all txt files for canary content marker
+            for path in self.root.rglob("*.txt"):
+                try:
+                    if path.is_file() and CANARY_CONTENT in path.read_text(errors="ignore")[:50]:
+                        path.unlink()
+                        removed += 1
+                        logger.debug("Removed content-identified canary: %s", path)
+                except OSError:
+                    pass
+
         except Exception as exc:
             logger.warning("Canary cleanup failed: %s", exc)
+        logger.info("Cleaned up %d canary files", removed)
 
     def _bfs_dirs(self) -> list[Path]:
         """Return directories under root in BFS order, skipping hidden dirs."""
