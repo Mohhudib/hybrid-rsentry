@@ -7,6 +7,7 @@ import logging
 import time
 from pathlib import Path
 from typing import Optional
+from functools import lru_cache
 
 import psutil
 
@@ -37,7 +38,6 @@ BENIGN_PARENTS = {
     "NetworkManager", "gdm", "lightdm", "Xorg",
     "gnome-shell", "kwin", "xfwm4",
     "bash", "sh", "zsh", "fish",         # shells are normal parents on Linux
-    "python", "python3",                  # scripting is normal on Kali
     "code", "code-server",               # VS Code terminal
     "nautilus", "dolphin", "thunar",     # file managers
     "firefox", "firefox-esr", "chromium",
@@ -47,7 +47,7 @@ WEIGHT_SUSPICIOUS_PARENT = 30
 WEIGHT_SUSPICIOUS_PATH = 25
 WEIGHT_DEEP_ANCESTRY = 15
 WEIGHT_HASH_MISMATCH = 20
-WEIGHT_NO_TTY = 5
+WEIGHT_NO_TTY = 2  # قللناه لأن معظم background processes بدون TTY
 WEIGHT_RAPID_SPAWN = 5
 
 
@@ -78,6 +78,7 @@ class ProcessLineage:
         }
 
 
+@lru_cache(maxsize=512)
 def _sha256_of_exe(exe_path: str) -> Optional[str]:
     try:
         h = hashlib.sha256()
@@ -97,8 +98,13 @@ def _collect_ancestors(proc: psutil.Process, max_depth: int = 10) -> tuple[list[
         depth = 0
         while p and depth < max_depth:
             try:
-                names.append(p.name())
-                paths.append(p.exe() or "")
+                name = p.name()
+                path = p.exe() or ""
+                names.append(name)
+                paths.append(path)
+                # early exit لو وصلنا لـ benign root process
+                if name.lower() in {"systemd", "init"}:
+                    break
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 break
             p = p.parent()
@@ -133,9 +139,13 @@ def score_process(pid: int) -> Optional[ProcessLineage]:
         score += WEIGHT_SUSPICIOUS_PARENT
         lineage.reasons.append(f"suspicious_parent:{immediate_parent}")
 
-    # Benign parent reduces score
+    # Benign parent reduces score — بس لو مش من suspicious path
     if immediate_parent.lower() in BENIGN_PARENTS:
-        score = max(0.0, score - 15)
+        # لو python3 أو interpreter شغّل شي من /tmp/ ما نخفف الـ score
+        parent_path = lineage.ancestor_paths[0] if lineage.ancestor_paths else ""
+        is_from_suspicious_path = any(parent_path.startswith(sp) for sp in SUSPICIOUS_SPAWN_PATHS)
+        if not is_from_suspicious_path:
+            score = max(0.0, score - 15)
 
     # 2. Suspicious spawn path
     exe_lower = lineage.exe.lower()
@@ -181,13 +191,15 @@ def score_process(pid: int) -> Optional[ProcessLineage]:
 def score_for_event(pid: int) -> dict:
     lineage = score_process(pid)
     if lineage is None:
+        # الـ process ماتت قبل ما نحللها — هاذا مشبوه بحد ذاته
+        logger.warning("PID %d not found — process may have exited after event (suspicious)", pid)
         return {
-            "lineage_score": 0.0,
-            "process_name": "",
+            "lineage_score": 40.0,  # نعطيها score متوسط لأن الاختفاء السريع مشبوه
+            "process_name": "exited_process",
             "exe": "",
             "ancestors": [],
             "sha256": None,
-            "reasons": ["process_not_found"],
+            "reasons": ["process_exited_rapidly"],
         }
     return {
         "lineage_score": lineage.score,
