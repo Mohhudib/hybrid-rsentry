@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from collections import deque
 from pathlib import Path
 
@@ -18,7 +19,7 @@ class FilesystemGraph:
         self._cleanup_old_canaries()
 
     def _cleanup_old_canaries(self):
-        """Delete all AAA_ canary files before placing new ones to avoid orphans on restart."""
+        """Delete all known canary files before placing new ones to avoid orphans on restart."""
         try:
             for path in self.root.rglob(f"{CANARY_PREFIX}*{CANARY_SUFFIX}"):
                 try:
@@ -44,25 +45,65 @@ class FilesystemGraph:
             queue.extend(subdirs)
         return dirs
 
+    def _pick_disguised_name(self, target_dir: Path, used_names: set) -> str:
+        """
+        Pick a name that blends in with existing files in the directory.
+        Uses existing filenames as a pool — falls back to UUID if none available.
+        """
+        try:
+            existing = [
+                f.stem for f in target_dir.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+                and CANARY_CONTENT not in f.read_text(errors="ignore")[:50]
+            ]
+        except OSError:
+            existing = []
+
+        # Try names from existing files first
+        for stem in existing:
+            candidate = target_dir / f"{stem}.txt"
+            if candidate not in used_names and not candidate.exists():
+                return candidate.name
+
+        # Fall back to UUID if no suitable name found
+        return f"{uuid.uuid4().hex[:8]}.txt"
+
     def place_canaries(self, strategy: str = "bfs") -> list[Path]:
         """Place CANARY_COUNT canary files spread across the directory tree."""
         self._cleanup_old_canaries()
         dirs = self._bfs_dirs() or [self.root]
         canaries: list[Path] = []
+        used_names: set = set()
         for i in range(CANARY_COUNT):
             target_dir = dirs[i % len(dirs)]
-            canary_path = target_dir / f"{CANARY_PREFIX}{i:03d}{CANARY_SUFFIX}"
+            name = self._pick_disguised_name(target_dir, used_names)
+            candidate = target_dir / name
+            used_names.add(candidate)
+            # Store canary marker in content for detection
             try:
-                canary_path.write_text(CANARY_CONTENT)
-                canaries.append(canary_path)
-                logger.debug("Placed canary: %s", canary_path)
+                candidate.write_text(f"{CANARY_CONTENT}\nID:{CANARY_PREFIX}{i:03d}")
+                canaries.append(candidate)
+                logger.debug("Placed canary: %s", candidate)
             except OSError as exc:
-                logger.warning("Could not place canary at %s: %s", canary_path, exc)
+                logger.warning("Could not place canary at %s: %s", candidate, exc)
         self.canary_paths = canaries
         logger.info("Placed %d canary files under %s", len(canaries), self.root)
         return canaries
 
     def is_canary(self, path: str) -> bool:
-        """Return True if the path matches the canary file naming convention."""
-        name = Path(path).name
+        """Return True if path is in our known canary list, or contains canary content."""
+        p = Path(path)
+        # First — check against known canary paths list
+        if p in self.canary_paths:
+            return True
+        # Second — check file content if file exists
+        try:
+            if p.is_file():
+                content = p.read_text(errors="ignore")
+                if CANARY_CONTENT in content:
+                    return True
+        except OSError:
+            pass
+        # Third — fallback to AAA_ prefix for backward compatibility
+        name = p.name
         return name.startswith(CANARY_PREFIX) and name.endswith(CANARY_SUFFIX)
