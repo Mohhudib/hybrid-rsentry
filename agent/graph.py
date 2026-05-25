@@ -81,8 +81,10 @@ class FilesystemGraph:
         try:
             existing = [
                 f.stem for f in target_dir.iterdir()
-                if f.is_file() and not f.name.startswith(".")
-                and CANARY_CONTENT not in f.read_text(errors="ignore")[:50]
+                if f.is_file()
+                and not f.name.startswith(".")
+                and f not in used_names
+                and f.suffix != CANARY_SUFFIX or f not in self.canary_paths
             ]
         except OSError:
             existing = []
