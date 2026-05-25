@@ -49,12 +49,39 @@ WHITELISTED_EXTENSIONS = {
     ".mp3", ".mp4", ".mkv", ".avi", ".mov", ".flac", ".ogg", ".wav",
     ".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ttf", ".otf", ".woff",
     ".iso", ".img", ".deb", ".rpm", ".apk",
-    ".pyc", ".pyo", ".so", ".o", ".a", ".dll", ".exe",
+    ".pyc", ".pyo", ".so", ".o", ".a",
+    # .exe / .dll removed — not native Linux extensions
     ".sqlite", ".db", ".sqlite3",
 }
 
 
+
+
+# ── Smart temp-dir filter ─────────────────────────────────────────
+# Temp dirs بتضل whitelisted، إلا لو الملف بامتداد بستهدفه الـ ransomware
+TEMP_DIR_PREFIXES = ("/tmp/", "/var/tmp/", "/dev/shm/")
+
+SUSPICIOUS_EXTENSIONS_IN_TEMP = {
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".odt", ".rtf",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".mp4", ".mp3", ".wav",
+    ".db", ".sqlite", ".sqlite3", ".csv", ".json", ".xml",
+    ".zip", ".rar", ".7z", ".tar", ".gz",
+    ".py", ".js", ".ts", ".c", ".cpp", ".h", ".java", ".go", ".rs",
+    ".key", ".pem", ".crt", ".kdbx",
+}
+
+
+def _is_suspicious_in_temp(path: str) -> bool:
+    """True if path is in a temp dir AND has a ransomware-targeted extension."""
+    if not path.startswith(TEMP_DIR_PREFIXES):
+        return False
+    return Path(path).suffix.lower() in SUSPICIOUS_EXTENSIONS_IN_TEMP
+
+
 def is_whitelisted_path(path: str) -> bool:
+    # Smart override: temp dir + suspicious ext ← never whitelisted
+    if _is_suspicious_in_temp(path):
+        return False
     for prefix in WHITELISTED_PATH_PREFIXES:
         if path.startswith(prefix):
             return True
@@ -69,6 +96,9 @@ def is_whitelisted_process(process_name: str) -> bool:
 
 
 def is_whitelisted(path: str, process_name: str = "") -> bool:
+    # Strong override: suspicious-in-temp مش whitelisted حتى لو الـ process معروف
+    if _is_suspicious_in_temp(path):
+        return False
     if is_whitelisted_path(path):
         return True
     if process_name and is_whitelisted_process(process_name):

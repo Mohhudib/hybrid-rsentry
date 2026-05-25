@@ -80,6 +80,8 @@ class EntropyEngine:
     Call .observe(path) whenever a file is modified.
     """
 
+    MAX_TRACKED_FILES = 5000  # حد أقصى عشان نتجنب memory leak
+
     def __init__(
         self,
         spike_threshold: float = ENTROPY_SPIKE_THRESHOLD,
@@ -95,6 +97,11 @@ class EntropyEngine:
 
     def _get_record(self, path: str) -> EntropyRecord:
         if path not in self._records:
+            # لو وصلنا للحد الأقصى، نشيل أقدم ملف
+            if len(self._records) >= self.MAX_TRACKED_FILES:
+                oldest = next(iter(self._records))
+                del self._records[oldest]
+                logger.debug("Entropy records full — evicted oldest: %s", oldest)
             self._records[path] = EntropyRecord(path, self.window)
         return self._records[path]
 
@@ -108,7 +115,9 @@ class EntropyEngine:
             return None
 
         try:
-            data = p.read_bytes()
+            # نقرأ أول 65536 byte بس — كافي لحساب الـ entropy وأسرع بكثير
+            with open(p, "rb") as f:
+                data = f.read(65536)
         except (PermissionError, OSError):
             return None
 

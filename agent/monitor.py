@@ -45,11 +45,52 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 COMBINED_CRITICAL = 70.0
 COMBINED_HIGH = 40.0
 
+# ── Extension-change detection ─────────────────────────────────────
+RANSOMWARE_EXTENSIONS = {
+    # Generic encryption markers
+    ".enc", ".encrypted", ".locked", ".crypto", ".crypt", ".cry",
+    ".aes", ".aes256",
+    # Known ransomware families
+    ".wcry", ".wncry", ".wnry",            # WannaCry
+    ".locky", ".lukitus", ".zepto",
+    ".odin", ".thor",                       # Locky family
+    ".ryk", ".ryuk",                        # Ryuk
+    ".sage", ".cerber",
+    ".gdcb",                                # GandCrab
+    ".dharma", ".wallet",
+}
+
+# Extensions اللي ransomware عادةً بستهدفها (user documents)
+TARGETED_EXTENSIONS = {
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".odt",
+    ".jpg", ".jpeg", ".png", ".bmp",
+    ".db", ".sqlite", ".sqlite3", ".sql",
+    ".txt", ".csv", ".json", ".xml",
+    ".zip", ".rar", ".7z", ".tar", ".gz",
+    ".mp3", ".mp4", ".wav", ".avi", ".mkv",
+}
+
 
 def _combined_score(lineage_score: float, entropy_delta: float) -> float:
     """Weighted combination of lineage and entropy signals (0–100)."""
     entropy_norm = min(entropy_delta / 8.0, 1.0) * 100
     return lineage_score * 0.6 + entropy_norm * 0.4
+
+
+def _check_ransomware_rename(src: str, dest: str):
+    """
+    تحدد إذا rename بطابق نمط ransomware.
+    Returns: 'CRITICAL' | 'HIGH' | None
+    """
+    dest_suffix = Path(dest).suffix.lower()
+    if dest_suffix not in RANSOMWARE_EXTENSIONS:
+        return None
+    src_suffix = Path(src).suffix.lower()
+    # CRITICAL: ملف بستهدفه ransomware → امتداد ransomware
+    if src_suffix in TARGETED_EXTENSIONS:
+        return "CRITICAL"
+    # HIGH: ambiguous (ممكن يكون openssl)
+    return "HIGH"
 
 
 class RsentryEventHandler(FileSystemEventHandler):
@@ -198,6 +239,33 @@ class RsentryEventHandler(FileSystemEventHandler):
 
         self.client.send_containment_complete(pid, result.to_dict())
 
+    def _emit_rename_alert(
+        self, src: str, dest: str, severity: str,
+        sub_type: str = "RANSOMWARE_RENAME",
+    ):
+        """Common emitter للـ rename و create-with-ransomware-ext."""
+        logger.critical(
+            "Extension-change pattern: %s -> %s [%s severity=%s]",
+            src, dest, sub_type, severity,
+        )
+        self.client.send_event(
+            event_type="ENTROPY_SPIKE",   # Closest fit in current enum
+            pid=0,
+            process_name="unknown",
+            file_path=dest,
+            lineage_score=0.0,
+            entropy_delta=0.0,
+            canary_hit=False,
+            details={
+                "sub_type": sub_type,
+                "src_path": src,
+                "dest_path": dest,
+                "src_extension": Path(src).suffix.lower(),
+                "dest_extension": Path(dest).suffix.lower(),
+            },
+            severity=severity,
+        )
+
     # ------------------------------------------------------------------
     # Watchdog event dispatch
     # ------------------------------------------------------------------
@@ -210,7 +278,16 @@ class RsentryEventHandler(FileSystemEventHandler):
     def on_created(self, event):
         if event.is_directory:
             return
-        self._handle_event("created", event.src_path)
+        src = event.src_path
+        # كشف ملف جديد بامتداد ransomware (يتجاوز الـ whitelist)
+        if Path(src).suffix.lower() in RANSOMWARE_EXTENSIONS:
+            self._emit_rename_alert(
+                src=src, dest=src,
+                severity="HIGH",
+                sub_type="RANSOMWARE_CREATED",
+            )
+            return
+        self._handle_event("created", src)
 
     def on_deleted(self, event):
         if event.is_directory:
@@ -232,18 +309,27 @@ class RsentryEventHandler(FileSystemEventHandler):
     def on_moved(self, event):
         if event.is_directory:
             return
-        if self.fs_graph.is_canary(event.src_path):
+        src, dest = event.src_path, event.dest_path
+
+        # Canary موڤ → CRITICAL (existing logic)
+        if self.fs_graph.is_canary(src):
             self.client.send_event(
                 event_type="CANARY_TOUCHED",
                 pid=0,
                 process_name="unknown",
-                file_path=event.src_path,
+                file_path=src,
                 lineage_score=0.0,
                 entropy_delta=0.0,
                 canary_hit=True,
-                details={"sub_type": "moved", "dest": event.dest_path},
+                details={"sub_type": "moved", "dest": dest},
                 severity="CRITICAL",
             )
+            return
+
+        # NEW: rename لامتداد ransomware
+        severity = _check_ransomware_rename(src, dest)
+        if severity:
+            self._emit_rename_alert(src, dest, severity)
 
 
 # ---------------------------------------------------------------------------

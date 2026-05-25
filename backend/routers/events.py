@@ -47,10 +47,11 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
 
     # Detect internal Markov chain events before creating alerts
     sub_type = (payload.details or {}).get("sub_type", "")
-    is_internal = (
-        sub_type == "MARKOV_REPOSITION" or
-        (sub_type == "moved" and payload.pid == 0)
-    )
+    # Internal = Markov repositioner output فقط.
+    # ملاحظة: شُلّ الشرط (sub_type=="moved" and pid==0) لأنه كان bug —
+    # canary on_moved بستخدم نفس sub_type والـ pid دائماً 0، فكان بتم
+    # تصنيفه internal والـ alert ما يصير.
+    is_internal = sub_type == "MARKOV_REPOSITION"
 
     event = Event(
         host_id=payload.host_id,
@@ -90,6 +91,11 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
     )
 
     # Auto containment — لو CRITICAL وفيه canary hit أو lineage عالي
+    # RANSOMWARE_RENAME/CREATED events بطلعوا من monitor.py بـ pid=0 +
+    # lineage_score=0 + entropy_delta=0، فما بطابقوا secondary conditions
+    # العادية — لازم نضيفهم explicit عشان auto-containment يشتغل
+    is_extension_change = sub_type in ("RANSOMWARE_RENAME", "RANSOMWARE_CREATED")
+
     should_contain = (
         payload.severity == Severity.CRITICAL
         and not is_internal
@@ -97,6 +103,7 @@ async def ingest_event(payload: EventCreate, db: AsyncSession = Depends(get_db))
             payload.canary_hit
             or payload.lineage_score >= AUTO_CONTAIN_THRESHOLD_LINEAGE
             or payload.entropy_delta >= AUTO_CONTAIN_ENTROPY
+            or is_extension_change
         )
     )
 
