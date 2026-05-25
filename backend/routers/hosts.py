@@ -1,7 +1,6 @@
 """
 hosts.py — Host inventory and risk endpoints.
 """
-import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
