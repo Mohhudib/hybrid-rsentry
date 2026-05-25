@@ -187,7 +187,6 @@ def _iptables_drop(pid: int) -> Optional[str]:
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return None
 
-    rule = f"-m owner --uid-owner {uid} -j DROP"
     cmd = ["iptables", "-I", "OUTPUT", "1", "-m", "owner",
            "--uid-owner", str(uid), "-j", "DROP"]
 
