@@ -5,17 +5,11 @@ Orchestrates graph, entropy, lineage, adaptive, containment, and client.
 import logging
 import os
 import signal
-import sys
 import threading
 import time
 from pathlib import Path
 
 from watchdog.events import (
-    FileClosedEvent,
-    FileCreatedEvent,
-    FileDeletedEvent,
-    FileModifiedEvent,
-    FileMovedEvent,
     FileSystemEventHandler,
 )
 from watchdog.observers import Observer
