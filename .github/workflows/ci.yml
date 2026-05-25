@@ -24,7 +24,7 @@ jobs:
         run: pip install ruff
 
       - name: Lint backend and agent
-        run: ruff check backend/ agent/ --ignore E712,F401,F841
+        run: ruff check backend/ agent/
 
   frontend-build:
     name: Frontend Build
