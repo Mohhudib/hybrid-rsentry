@@ -51,7 +51,7 @@ export default function App() {
       }
     }
 
-    if (msg.type === 'ai_analysis' && msg.event_id) {
+    if ((msg.type === 'ai_analysis' || msg.type === 'ai_analysis_update') && msg.event_id) {
       setAiPendingEvents(prev => {
         const next = { ...prev };
         delete next[msg.event_id];
