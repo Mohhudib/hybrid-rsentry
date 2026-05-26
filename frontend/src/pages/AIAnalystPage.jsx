@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { getEvents } from '../api/client';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const RISK_COLORS = {
   CRITICAL: { text: 'text-red-400',    bg: 'bg-red-900/30',    border: 'border-red-700' },

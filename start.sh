@@ -65,7 +65,7 @@ echo "    Agent started (pid $AGENT_PID)."
 # ── 5. Frontend ───────────────────────────────────────────────────────────────
 echo "==> [5/5] Starting frontend (npm start)..."
 cd "$REPO_DIR/frontend"
-BROWSER=none npm start &> /tmp/rsentry-frontend.log &
+npm run dev &> /tmp/rsentry-frontend.log &
 FRONTEND_PID=$!
 echo -n "    Waiting for frontend"
 until curl -s http://localhost:3000 2>/dev/null | grep -q "html"; do
