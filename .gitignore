@@ -34,4 +34,7 @@ frontend/.env.local
 .vscode/
 .idea/
 *.swp
-.env
+
+# Canary files — never track these in git
+AAA_*.txt
+**/AAA_*.txt

@@ -33,6 +33,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config from environment
 # ---------------------------------------------------------------------------
+def _validate_watch_path(watch_path: str) -> None:
+    """Refuse to start if WATCH_PATH is inside a git repo — would corrupt .git/refs via canary placement."""
+    import pathlib
+    resolved = pathlib.Path(watch_path).resolve()
+    check = resolved
+    for _ in range(10):
+        if (check / ".git").is_dir():
+            logger.critical(
+                "WATCH_PATH=%s is inside a git repository at %s. "
+                "This will corrupt .git/refs via canary file placement. "
+                "Set WATCH_PATH to a directory outside the repo and restart.",
+                watch_path, check,
+            )
+            sys.exit(1)
+        parent = check.parent
+        if parent == check:
+            break
+        check = parent
+
 WATCH_PATH = os.getenv("WATCH_PATH", "/home")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 HOST_ID = os.getenv("HOST_ID", "kali-endpoint-01")
@@ -426,5 +445,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     )
+    _validate_watch_path(WATCH_PATH)
     monitor = Monitor(watch_path=WATCH_PATH, auto_contain=not DRY_RUN)
     monitor.start()

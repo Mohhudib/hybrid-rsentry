@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 REPOSITION_THRESHOLD = 0.70     # trigger repositioning if any state prob >= this
 MIN_OBSERVATIONS = 10           # don't reposition until we have enough data
 
+# Directories the repositioner must never touch
+_UNSAFE_PREFIXES = (
+    "/.git/",
+    "/proc/",
+    "/sys/",
+    "/dev/",
+    "/run/",
+)
+
 
 class MarkovRepositioner:
     """
@@ -32,6 +41,22 @@ class MarkovRepositioner:
         self._counts: Optional[np.ndarray] = None
         self._last_state: Optional[int] = None
         self._n_observations: int = 0
+
+    # ------------------------------------------------------------------
+    # Safety guard
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_safe_target(path) -> bool:
+        """Return False for any path that could corrupt system or VCS state."""
+        from pathlib import Path as _Path
+        resolved = str(_Path(path).resolve()) + "/"
+        if "/.git/" in resolved:
+            return False
+        for prefix in _UNSAFE_PREFIXES:
+            if resolved.startswith(prefix):
+                return False
+        return True
 
     # ------------------------------------------------------------------
     # State management
@@ -136,6 +161,12 @@ class MarkovRepositioner:
             if not canary.exists():
                 continue
             target_dir = Path(hotspots[i % len(hotspots)])
+            if not self._is_safe_target(target_dir):
+                logger.warning(
+                    "Markov: refusing unsafe reposition target %s — skipping", target_dir
+                )
+                new_paths.append(canary)
+                continue
             target_dir.mkdir(parents=True, exist_ok=True)
             new_path = target_dir / canary.name
             if new_path == canary:
