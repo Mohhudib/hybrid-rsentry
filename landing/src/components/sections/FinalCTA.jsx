@@ -100,16 +100,6 @@ export default function FinalCTA() {
           >
             ⭐ Star on GitHub
           </a>
-          <a
-            href="#"
-            id="btn-paper"
-            className="flex items-center gap-2 px-8 py-3.5 rounded-xl font-heading font-semibold text-sm tracking-wider border transition-all duration-200"
-            style={{ borderColor: '#b537f2', color: '#b537f2', background: 'transparent' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(181,55,242,0.1)'; e.currentTarget.style.boxShadow = '0 0 20px #b537f230'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}
-          >
-            📄 Read the Paper
-          </a>
         </motion.div>
       </div>
     </section>

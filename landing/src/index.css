@@ -64,42 +64,6 @@ body {
   );
 }
 
-/* ─── Custom Cursor ─────────────────────────────────────── */
-.cursor-dot {
-  position: fixed;
-  top: 0; left: 0;
-  width: 20px; height: 20px;
-  pointer-events: none;
-  z-index: 9999;
-  transform: translate(-50%, -50%);
-}
-.cursor-dot::before,
-.cursor-dot::after {
-  content: '';
-  position: absolute;
-  background: var(--cyan);
-  border-radius: 1px;
-  box-shadow: 0 0 8px var(--cyan), 0 0 16px var(--cyan);
-  transition: transform 0.1s;
-}
-/* horizontal bar */
-.cursor-dot::before {
-  width: 20px; height: 1.5px;
-  top: 50%; left: 0;
-  transform: translateY(-50%);
-}
-/* vertical bar */
-.cursor-dot::after {
-  width: 1.5px; height: 20px;
-  left: 50%; top: 0;
-  transform: translateX(-50%);
-}
-.cursor-dot.hovering::before,
-.cursor-dot.hovering::after {
-  box-shadow: 0 0 16px var(--cyan), 0 0 32px var(--cyan), 0 0 64px var(--cyan);
-  transform-origin: center;
-}
-
 /* ─── Glow Utilities ────────────────────────────────────── */
 .glow-cyan  { text-shadow: 0 0 10px #00f5ff, 0 0 30px #00f5ff55; }
 .glow-red   { text-shadow: 0 0 10px #ff1744, 0 0 30px #ff174455; }
