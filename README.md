@@ -6,6 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue?style=flat-square&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite)](https://vitejs.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.x-37814A?style=flat-square)](https://docs.celeryq.dev)
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis)](https://redis.io)
@@ -118,7 +119,7 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 | Backend | FastAPI, SQLAlchemy (async), PostgreSQL, asyncpg |
 | Task Queue | Celery, Redis |
 | AI | Cerebras / NVIDIA / Groq (OpenAI-compatible, multi-provider fallback) |
-| Frontend | React 18, Tailwind CSS, Recharts, jsPDF, WebSocket |
+| Frontend | React 18, Vite 5, Tailwind CSS, Recharts, jsPDF, WebSocket |
 | Infrastructure | Docker Compose (PostgreSQL + Redis) |
 
 ---
@@ -337,7 +338,7 @@ A security audit of this repository was conducted in May 2026. The following iss
 | Parameterised Docker Compose credentials | `docker-compose.yml` reads `${POSTGRES_PASSWORD}` from the environment |
 | Canary file git corruption prevented | `.gitignore` excludes `AAA_*.txt`; agent validates `WATCH_PATH` at startup; Markov repositioner blocks `.git/` targets |
 
-**Dependabot:** All remaining npm alerts are inside `react-scripts`' build toolchain (`jest`, `webpack-dev-server`, `workbox`). They are not present in the production React build and cannot be fixed without migrating from Create React App. They do not represent runtime risk.
+**Dependabot:** The frontend has been migrated from Create React App to Vite, which resolved all 26 npm security alerts that were embedded in the `react-scripts` build toolchain.
 
 For reporting vulnerabilities, see [SECURITY.md](SECURITY.md).
 
