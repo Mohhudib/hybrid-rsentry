@@ -5,7 +5,7 @@
 **A real-time ransomware detection and auto-containment system for Linux endpoints**
 
 [![Python](https://img.shields.io/badge/Python-3.13-blue?style=flat-square&logo=python)](https://python.org)
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite)](https://vitejs.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![Celery](https://img.shields.io/badge/Celery-5.x-37814A?style=flat-square)](https://docs.celeryq.dev)
@@ -119,7 +119,7 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 | Backend | FastAPI, SQLAlchemy (async), PostgreSQL, asyncpg |
 | Task Queue | Celery, Redis |
 | AI | Cerebras / NVIDIA / Groq (OpenAI-compatible, multi-provider fallback) |
-| Frontend | React 18, Vite 5, Tailwind CSS, Recharts, jsPDF, WebSocket |
+| Frontend | React 19, Vite 5, Tailwind CSS, Recharts, jsPDF, WebSocket |
 | Infrastructure | Docker Compose (PostgreSQL + Redis) |
 
 ---
