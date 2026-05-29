@@ -109,7 +109,7 @@ Groq keys are also accepted in place of NVIDIA keys — auto-detected by the `gs
 3. **Never edit `.env.example` thinking it is `.env`.** Real secrets are in `.env` (gitignored).
 4. **Always start the agent with `sudo -E`** after sourcing `.env`. Without `-E`, sudo strips env vars and the agent watches the wrong path.
 5. **Always activate the venv before pip commands:** `source venv/bin/activate`
-6. **Never run `npm audit fix --force`.** It installs `react-scripts@0.0.0` and breaks the frontend build.
+6. **Never run `npm audit fix --force`** on the frontend without checking what it intends to install.
 7. **Do not suggest adding authentication middleware** without understanding the full async SQLAlchemy dependency chain — this has broken the app before.
 
 ---
