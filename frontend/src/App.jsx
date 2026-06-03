@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import Sidebar from './components/Sidebar';
+import TopBar from './components/TopBar';
+import StatusBar from './components/StatusBar';
 import Overview from './pages/Overview';
 import AlertsPage from './pages/AlertsPage';
 import HostsPage from './pages/HostsPage';
@@ -16,7 +17,6 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [liveAlert, setLiveAlert] = useState(null);
   const [liveEvent, setLiveEvent] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // AI state lifted here so it persists across page navigation
   const [aiAnalyses, setAiAnalyses] = useState([]);
@@ -103,7 +103,7 @@ export default function App() {
   const renderPage = () => {
     switch (page) {
       case 'dashboard':  return <Overview liveAlert={liveAlert} liveEvent={liveEvent} connected={connected} />;
-      case 'alerts':     return <AlertsPage newAlert={liveAlert} liveAiResult={latestAiResult} />;
+      case 'alerts':     return <AlertsPage newAlert={liveAlert} liveAiResult={latestAiResult} liveEvent={liveEvent} />;
       case 'hosts':      return <HostsPage />;
       case 'filesystem': return <FilesystemPage newEvent={liveEvent} connected={connected} />;
       case 'ai':         return (
@@ -122,12 +122,15 @@ export default function App() {
     }
   };
 
+  const activeAlertCount = liveAlert ? 1 : 0;
+
   return (
-    <div className="min-h-screen bg-gray-950 flex">
-      <Sidebar activePage={page} onNavigate={setPage} connected={connected} collapsed={!sidebarOpen} onToggle={() => setSidebarOpen(o => !o)} />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)', overflow: 'hidden' }}>
+      <TopBar activePage={page} onNavigate={setPage} connected={connected} alertCount={activeAlertCount} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         {renderPage()}
       </div>
+      <StatusBar connected={connected} />
     </div>
   );
 }

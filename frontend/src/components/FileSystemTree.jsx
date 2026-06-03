@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { getEvents } from '../api/client';
 
 // ─── Tree builder ──────────────────────────────────────────────────────────
@@ -75,9 +75,10 @@ function EntropyPill({ value }) {
 
 // ─── Single tree row ───────────────────────────────────────────────────────
 
-function TreeRow({ node, prefix, isLast, flashPaths, depth }) {
+function TreeRow({ node, prefix, isLast, flashPaths, highlightPaths, depth }) {
   const hasChildren = Object.keys(node.children).length > 0;
-  const autoOpen = depth < 2 || node.stats.alertCount > 0 || node.isCanary || node.stats.canaryHit;
+  const isHighlighted = highlightPaths?.has(node.path);
+  const autoOpen = depth < 2 || node.stats.alertCount > 0 || node.isCanary || node.stats.canaryHit || isHighlighted;
   const [open, setOpen] = useState(autoOpen);
   const isFlashing = flashPaths.has(node.path);
   const { text, glow } = nodeColor(node);
@@ -91,7 +92,12 @@ function TreeRow({ node, prefix, isLast, flashPaths, depth }) {
       {/* Row */}
       <div
         className="flex items-center group cursor-pointer select-none"
-        style={{ backgroundColor: isFlashing ? '#1f2937' : 'transparent', transition: 'background 0.3s' }}
+        style={{
+          backgroundColor: isFlashing ? '#1f2937' : isHighlighted ? 'rgba(79,140,201,0.12)' : 'transparent',
+          transition: 'background 0.3s',
+          borderLeft: isHighlighted ? '2px solid var(--accent, #4f8cc9)' : '2px solid transparent',
+          paddingLeft: isHighlighted ? 2 : 0,
+        }}
         onClick={() => hasChildren && setOpen((o) => !o)}
       >
         {/* Tree connector */}
@@ -162,6 +168,7 @@ function TreeRow({ node, prefix, isLast, flashPaths, depth }) {
           prefix={childPrefix}
           isLast={i === children.length - 1}
           flashPaths={flashPaths}
+          highlightPaths={highlightPaths}
           depth={depth + 1}
         />
       ))}
@@ -171,7 +178,7 @@ function TreeRow({ node, prefix, isLast, flashPaths, depth }) {
 
 // ─── Root renderer ─────────────────────────────────────────────────────────
 
-function RootRow({ node, flashPaths }) {
+function RootRow({ node, flashPaths, highlightPaths }) {
   const hasChildren = Object.keys(node.children).length > 0;
   const [open, setOpen] = useState(true);
   const children = sortChildren(node.children);
@@ -202,6 +209,7 @@ function RootRow({ node, flashPaths }) {
           prefix=""
           isLast={i === children.length - 1}
           flashPaths={flashPaths}
+          highlightPaths={highlightPaths}
           depth={1}
         />
       ))}
@@ -211,7 +219,7 @@ function RootRow({ node, flashPaths }) {
 
 // ─── Main export ───────────────────────────────────────────────────────────
 
-export default function FileSystemTree({ newEvent, connected }) {
+export default function FileSystemTree({ newEvent, connected, highlightPath, compact }) {
   const [tree, setTree] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [flashPaths, setFlashPaths] = useState(new Set());
@@ -258,6 +266,26 @@ export default function FileSystemTree({ newEvent, connected }) {
     setTimeout(() => setFlashPaths(new Set()), 3000);
   }, [newEvent]);
 
+  const highlightPaths = useMemo(() => {
+    if (!highlightPath) return null;
+    const parts = highlightPath.replace(/^\//, '').split('/').filter(Boolean);
+    return new Set(parts.map((_, i) => '/' + parts.slice(0, i + 1).join('/')));
+  }, [highlightPath]);
+
+  if (compact) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--bg)' }}>
+        <div className="flex-1 overflow-y-auto p-3 leading-6">
+          {!tree ? (
+            <p style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</p>
+          ) : (
+            <RootRow node={tree} flashPaths={flashPaths} highlightPaths={highlightPaths} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -303,7 +331,7 @@ export default function FileSystemTree({ newEvent, connected }) {
         {!tree ? (
           <p className="text-gray-500 text-sm">Loading filesystem…</p>
         ) : (
-          <RootRow node={tree} flashPaths={flashPaths} />
+          <RootRow node={tree} flashPaths={flashPaths} highlightPaths={highlightPaths} />
         )}
       </div>
     </div>

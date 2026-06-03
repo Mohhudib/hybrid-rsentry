@@ -2,32 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
+:root {
+  --bg: #131519;
+  --panel: #191b21;
+  --panel-2: #1e2027;
+  --panel-3: #23262e;
+  --border: #2b2e37;
+  --border-soft: #23262d;
+  --text: #d4d6dc;
+  --text-2: #a3a6b0;
+  --muted: #6f727c;
+  --faint: #565963;
+  --accent: #4f8cc9;
+  --accent-dim: rgba(79, 140, 201, 0.14);
+  --crit: #d8503c;
+  --high: #d6873a;
+  --med: #c9b13f;
+  --low: #5b8fb0;
+  --ok: #4e9e7e;
+  --crit-bg: rgba(216, 80, 60, 0.13);
+  --high-bg: rgba(214, 135, 58, 0.13);
+  --med-bg: rgba(201, 177, 63, 0.12);
+  --low-bg: rgba(91, 143, 176, 0.13);
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
   margin: 0;
-  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background-color: #030712;
-  color: #f9fafb;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-::-webkit-scrollbar {
-  width: 4px;
-}
-::-webkit-scrollbar-track {
-  background: #111827;
-}
-::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 2px;
-}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #34373f; border-radius: 6px; border: 2px solid var(--panel); }
+::-webkit-scrollbar-thumb:hover { background: #41454e; }
+::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes pulse-once {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
-.animate-pulse-once {
-  animation: pulse-once 1s ease-in-out 1;
-}
+.animate-pulse-once { animation: pulse-once 1s ease-in-out 1; }
+
+.siem-nav-btn { background: transparent; border: none; cursor: pointer; font-family: var(--sans); font-size: 13px; color: var(--text-2); padding: 6px 11px; border-radius: 6px; display: inline-flex; align-items: center; gap: 7px; }
+.siem-nav-btn:hover { background: var(--panel-2); color: var(--text); }
+.siem-nav-btn.active { background: var(--panel-3); color: #fff; }
+
+.siem-icon-btn { background: transparent; border: 1px solid transparent; cursor: pointer; color: var(--text-2); border-radius: 6px; width: 30px; height: 28px; display: grid; place-items: center; }
+.siem-icon-btn:hover { background: var(--panel-2); color: var(--text); }
+
+.siem-tbl-btn { height: 26px; padding: 0 9px; border-radius: 5px; cursor: pointer; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2); font-size: 11.5px; font-family: var(--sans); display: inline-flex; align-items: center; gap: 6px; }
+.siem-tbl-btn:hover { color: var(--text); border-color: #3a3e48; }
+
+.siem-dt-btn { flex: 1; height: 30px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: var(--sans); display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); }
+.siem-dt-btn:hover { border-color: #3a3e48; background: var(--panel-3); }
+.siem-dt-btn.danger { background: var(--crit-bg); border-color: rgba(216,80,60,0.4); color: #e88b7a; }
+.siem-dt-btn.danger:hover { background: rgba(216,80,60,0.2); }
+
+.siem-pgbtn { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); cursor: pointer; }
+.siem-pgbtn:hover { color: var(--text); border-color: #3a3e48; }
+
+.facet-head { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 9px 12px; color: var(--text-2); user-select: none; }
+.facet-head:hover { color: var(--text); }
+.facet-head.collapsed .facet-chev { transform: rotate(-90deg); }
+.facet-chev { font-size: 9px; color: var(--muted); width: 8px; transition: transform 0.15s; }
+.facet-head.collapsed + .facet-values { display: none; }
+
+.fval { display: flex; align-items: center; gap: 8px; position: relative; padding: 4px 8px; border-radius: 5px; cursor: pointer; overflow: hidden; }
+.fval:hover { background: var(--panel-2); }
+.fval:hover .fadd { opacity: 1; }
+.fval .fadd { opacity: 0; color: var(--accent); font-size: 10px; }
+
+.hbar-col { flex: 1; display: flex; flex-direction: column-reverse; min-width: 0; cursor: pointer; opacity: 0.92; }
+.hbar-col:hover { opacity: 1; }
+.hbar-col:hover .hbar-seg { filter: brightness(1.18); }
