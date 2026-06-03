@@ -58,6 +58,55 @@ async def alert_counts(db: AsyncSession = Depends(get_db)):
     return counts
 
 
+
+@router.get("/with-events")
+async def list_alerts_with_events(
+    severity: Optional[str] = Query(None),
+    acknowledged: Optional[bool] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return alerts joined with their event data for PDF report generation."""
+    stmt = (
+        select(Alert, Event)
+        .join(Event, Alert.event_id == Event.id)
+        .order_by(desc(Alert.created_at))
+        .limit(limit)
+    )
+    if severity and severity != "ALL":
+        stmt = stmt.where(Alert.severity == severity)
+    if acknowledged is not None:
+        stmt = stmt.where(Alert.acknowledged == acknowledged)
+    if date_from:
+        stmt = stmt.where(Alert.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(Alert.created_at <= date_to)
+
+    rows = (await db.execute(stmt)).all()
+    result = []
+    for alert, event in rows:
+        result.append({
+            "id":           str(alert.id),
+            "event_id":     str(alert.event_id),
+            "host_id":      alert.host_id,
+            "severity":     alert.severity,
+            "acknowledged": alert.acknowledged,
+            "created_at":   alert.created_at.isoformat() if alert.created_at else None,
+            "resolved_at":  alert.resolved_at.isoformat() if alert.resolved_at else None,
+            "event_type":   event.event_type,
+            "pid":          event.pid,
+            "process_name": event.process_name,
+            "file_path":    event.file_path,
+            "lineage_score":event.lineage_score,
+            "entropy_delta":event.entropy_delta,
+            "canary_hit":   event.canary_hit,
+            "timestamp":    event.timestamp.isoformat() if event.timestamp else None,
+            "details":      event.details or {},
+        })
+    return result
+
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
