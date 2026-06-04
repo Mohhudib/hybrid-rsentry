@@ -631,13 +631,13 @@ def run_sensor(
             if enforce and pid > 0:
                 _contain(pid, comm)
 
-    b["rename_events"].open_perf_buffer(_handle_rename, page_cnt=2048)
+    b["rename_events"].open_perf_buffer(_handle_rename, page_cnt=8192)
     b["write_events"].open_perf_buffer(_handle_write, page_cnt=64)
     print("[ebpf] probes loaded — listening...")
 
     # Warm up
     for _ in range(10):
-        b.perf_buffer_poll(timeout=1)
+        b.perf_buffer_poll(timeout=0)
 
     # If sim_fn provided run it then drain events
     if sim_fn is not None:
@@ -649,7 +649,7 @@ def run_sensor(
 
     try:
         while True:
-            b.perf_buffer_poll(timeout=1)
+            b.perf_buffer_poll(timeout=0)
     except KeyboardInterrupt:
         pass
     finally:
@@ -936,10 +936,10 @@ if __name__ == "__main__":
                     _os.rename(path, path + "." + _mod.PROFILE.ext_fn())
                 except OSError:
                     pass
-                b.perf_buffer_poll(timeout=1)
+                b.perf_buffer_poll(timeout=0)
             # drain remaining
             for _ in range(200):
-                b.perf_buffer_poll(timeout=1)
+                b.perf_buffer_poll(timeout=0)
             print("[sim] done")
 
     run_sensor(
