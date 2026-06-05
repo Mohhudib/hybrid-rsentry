@@ -36,6 +36,7 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 - **Process Lineage Scoring** — Scores suspicious process ancestry chains including parent names, spawn location, and binary SHA-256 verified against 416 K dpkg hashes (MATCH / MISMATCH / UNKNOWN verdicts)
 - **Ransomware Extension Detection** — Renames to `.enc`, `.locked`, `.wcry`, `.crypted` etc. trigger CRITICAL (if the source was a document) or HIGH alert
 - **Markov Chain Repositioning** — Adaptively moves canary files to predicted high-risk directories based on observed filesystem access patterns; blocks repositioning into `.git/`, `/proc/`, `/sys/`, `/dev/`, `/run/`
+- **eBPF Kernel Sensor** (`agent/monitor_ebpf.py`) — TRACEPOINT_PROBE-based rename syscall monitoring at the kernel boundary; velocity burst detection; ransomware family profiling (LockBit 5.0 / Akira / ESXi); BCC 0.35, kernel ≥ 6.19
 - **Combined Threat Scoring** — Fuses entropy and lineage signals into a weighted threat score for accurate severity classification
 - **False Positive Suppression** — Comprehensive whitelist system (`agent/exceptions.py`) covering browsers, package managers, system paths, archive formats, media files, and smart temp-dir filtering to eliminate noise on live Linux systems
 
@@ -54,15 +55,15 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 - Auto-acknowledges alerts classified as Benign or LOW risk
 - System health check: analyzes recent activity patterns and reports overall endpoint status
 
-### Live Dashboard
-- Real-time WebSocket feed with three independent Redis pub/sub channels
-- 6 live stat cards (events, alerts by severity, canary hits, contained hosts)
-- Filesystem tree with canary zone indicators, entropy bars, and live flash on activity
-- Tactical Response Log with procedure names and severity filters
-- Alert management with per-alert ACK and bulk "Acknowledge All" button
-- Host risk panel with radial risk score gauge that updates after every acknowledgement
+### SIEM Dashboard
+- Kibana-style 3-column layout: **FacetRail** filter panel, center (MetricsStrip + stacked histogram + sortable AlertsTable), **DetailFlyout** on alert click
+- **TopBar** horizontal navigation with 6 tabs + live alert count badge; **StatusBar** at the bottom with agents/EPS/WS status/cluster
+- **D3 v7 force-directed filesystem graph** — Obsidian-style node graph inside DetailFlyout and EventDetailModal; zoom, drag, tooltip, selected path pulled to center
+- Clickable TacticalResponseLog events → EventDetailModal with Summary/Entity/MITRE/Filesystem/Raw tabs
+- Live WebSocket feed — MetricsStrip, histogram, and table refresh instantly on new events
+- Host risk panel with radial risk score gauge and alert breakdown by severity
 - AI Analyst page with pending spinners, error cards, and 4-minute analysis persistence
-- **PDF Forensic Export** — date filter, severity filter, host-aware Hosts Overview table, per-alert drill-down cards with AI analysis; SHA-256 integrity footer on every page
+- **PDF Forensic Export** — date filter, severity filter, host-aware Hosts Overview table, per-alert drill-down with AI analysis; SHA-256 integrity footer on every page
 
 ---
 
@@ -72,16 +73,25 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 ┌─────────────────────────────────────────────────────────────┐
 │                        Linux Endpoint                        │
 │                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
-│  │  Watchdog    │   │   Entropy    │   │    Lineage     │  │
-│  │  Monitor     │──▶│   Engine     │──▶│    Scorer      │  │
-│  └──────────────┘   └──────────────┘   └────────────────┘  │
-│         │                                       │           │
-│         ▼                                       ▼           │
-│  ┌──────────────┐                    ┌────────────────────┐ │
-│  │    Markov    │                    │  Auto-Containment  │ │
-│  │ Repositioner │                    │ SIGSTOP→iptables   │ │
-│  └──────────────┘                    └────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Sensor: inotify (watchdog) OR eBPF (kernel 6.19+)  │   │
+│  │   monitor.py                 monitor_ebpf.py         │   │
+│  │   (watchdog, userspace)      (TRACEPOINT_PROBE,      │   │
+│  │                               velocity burst,        │   │
+│  │                               family profiling)      │   │
+│  └───────────────────┬─────────────────────────────────┘   │
+│                      │                                      │
+│  ┌───────────────┐   │   ┌───────────────┐   ┌──────────┐  │
+│  │   Entropy     │◀──┴──▶│    Lineage    │   │Extension │  │
+│  │   Engine      │       │    Scorer     │   │Detection │  │
+│  └───────────────┘       └───────────────┘   └──────────┘  │
+│         │                        │                │         │
+│         ▼                        ▼                ▼         │
+│  ┌──────────────┐       ┌─────────────────────────────┐    │
+│  │    Markov    │       │     Auto-Containment         │    │
+│  │ Repositioner │       │  SIGSTOP→evidence→iptables   │    │
+│  └──────────────┘       │  →SIGKILL (tree-aware)       │    │
+│                         └─────────────────────────────┘    │
 └─────────────────────┬───────────────────────────────────────┘
                       │ HTTP POST /api/events
                       ▼
@@ -104,8 +114,9 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
                                                   │ WebSocket
                                                   ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     React Dashboard                          │
-│         Live alerts · AI analysis · Host risk · PDF export  │
+│              React 19 SIEM Dashboard (Vite 5)                │
+│  TopBar + 6 tabs │ FacetRail │ Histogram │ D3 force graph   │
+│  Alert flyout │ AI analysis │ Host risk │ PDF export        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -115,12 +126,13 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 
 | Layer | Technology |
 |---|---|
-| Agent | Python 3.13, watchdog, psutil, networkx, scipy, numpy |
+| Agent (inotify) | Python 3.13, watchdog 6, psutil, networkx, scipy, numpy |
+| Agent (eBPF) | Python 3.13, BCC 0.35 (`python3-bpfcc`), Linux kernel ≥ 6.19 |
 | Backend | FastAPI, SQLAlchemy (async), PostgreSQL, asyncpg |
 | Task Queue | Celery, Redis |
 | AI | Cerebras / NVIDIA / Groq (OpenAI-compatible, multi-provider fallback) |
-| Frontend | React 19, Vite 5, Tailwind CSS, Recharts, jsPDF, WebSocket |
-| Infrastructure | Docker Compose (PostgreSQL + Redis) |
+| Frontend | React 19, Vite 5, Tailwind CSS 3, **D3 v7**, Recharts, jsPDF, IBM Plex Sans/Mono, Font Awesome 6.5.1 |
+| Infrastructure | Docker Compose (PostgreSQL + Redis), Node.js 22 |
 
 ---
 
@@ -128,8 +140,10 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 
 ### Prerequisites
 - Python 3.13
-- Node.js 18+
+- Node.js 22
 - Docker & Docker Compose
+- **For eBPF sensor (default):** Linux kernel ≥ 6.19 + `sudo apt install python3-bpfcc bpfcc-tools -y`
+  - If kernel is older or BCC unavailable, set `SENSOR_BACKEND=inotify` in `.env`
 
 ### Quick Start (recommended)
 
@@ -137,6 +151,8 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 ```bash
 git clone https://github.com/Mohhudib/hybrid-rsentry.git
 cd hybrid-rsentry
+# Install BCC for eBPF sensor (skip if using inotify fallback)
+sudo apt install python3-bpfcc bpfcc-tools -y
 bash setup.sh
 ```
 
@@ -251,34 +267,51 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 
 ```
 hybrid-rsentry/
-├── agent/                  # Endpoint monitoring agent
-│   ├── monitor.py          # Main watchdog orchestrator + _validate_watch_path()
-│   ├── graph.py            # Filesystem graph + BFS canary placement
-│   ├── entropy.py          # Shannon entropy engine (memory-capped)
-│   ├── lineage.py          # Process lineage scorer + dpkg hash verification
-│   ├── adaptive.py         # Markov chain repositioner + _is_safe_target() guard
-│   ├── containment.py      # Tree-aware auto-containment pipeline
-│   ├── exceptions.py       # Whitelist rules + smart /tmp filter
-│   └── client.py           # Backend HTTP client
+├── agent/                       # Endpoint monitoring agent
+│   ├── monitor.py               # Main watchdog orchestrator (inotify backend)
+│   ├── monitor_ebpf.py          # eBPF kernel sensor (TRACEPOINT_PROBE, BCC 0.35)
+│   ├── graph.py                 # Filesystem graph + BFS canary placement
+│   ├── entropy.py               # Shannon entropy engine (memory-capped)
+│   ├── lineage.py               # Process lineage scorer + dpkg hash verification
+│   ├── adaptive.py              # Markov chain repositioner + _is_safe_target() guard
+│   ├── containment.py           # Tree-aware auto-containment pipeline
+│   ├── exceptions.py            # Whitelist rules + smart /tmp filter
+│   └── client.py                # Backend HTTP client
 ├── backend/
-│   ├── main.py             # FastAPI app entry point
-│   ├── models/             # SQLAlchemy ORM + Pydantic schemas
-│   ├── routers/            # events, alerts, hosts, ws
-│   ├── services/           # AI analyst (multi-provider)
-│   └── workers/            # Celery tasks
+│   ├── main.py                  # FastAPI app entry point
+│   ├── models/                  # SQLAlchemy ORM + Pydantic schemas
+│   ├── routers/                 # events, alerts, hosts, ws
+│   ├── services/                # AI analyst (multi-provider fallback chain)
+│   └── workers/                 # Celery tasks
 ├── frontend/
+│   ├── index.html               # Vite root; IBM Plex fonts + Font Awesome 6.5.1
+│   ├── vite.config.js           # Vite: React plugin + proxy + process.env shim
 │   └── src/
-│       ├── pages/          # Overview, Alerts, Hosts, Filesystem, AI Analyst, Reports
-│       ├── components/     # StatsBar, FileSystemTree, AIAnalystPanel, HostRiskPanel
-│       ├── hooks/          # useWebSocket
-│       └── api/            # Axios client
-├── landing/                # 3D cinematic landing page (React Three Fiber + Framer Motion)
+│       ├── App.jsx              # Root — TopBar + StatusBar layout; WS + AI state
+│       ├── index.css            # CSS variable design system + SIEM utility classes
+│       ├── pages/               # Overview, AlertsPage, HostsPage, FilesystemPage,
+│       │                        # AIAnalystPage, ReportsPage
+│       ├── components/          # TopBar, StatusBar, FacetRail, MetricsStrip,
+│       │                        # AlertsHistogram, AlertsTable, DetailFlyout,
+│       │                        # EventDetailModal, FileSystemGraph, FileSystemTree,
+│       │                        # TacticalResponseLog, AIAnalystPanel, ...
+│       ├── hooks/               # useWebSocket
+│       └── api/                 # Axios client
+├── landing/                     # 3D cinematic landing page (React Three Fiber + Framer Motion)
 ├── tests/
-│   └── unit/agent/         # 71 tests — entropy, lineage, adaptive, severity (89% coverage)
-├── simulations/            # Simulation scripts (sim_depth, sim_dfs, sim_random)
-├── .github/workflows/      # CI lint + Docker build + landing page deploy
-├── start.sh                # One-command startup script
-├── test_event.sh           # One-command pipeline test (sends CANARY_TOUCHED event)
+│   ├── unit/agent/              # 71 tests — entropy, lineage, adaptive, severity (89% coverage)
+│   └── test_lockbit.py          # LockBit 5.0 4-metric evaluation — all targets met
+├── simulations/                 # Attack simulation scripts
+│   ├── sim_common.py            # Shared engine (profile, corpus, run_attack, backup/restore)
+│   ├── sim_lockbit.py           # LockBit 5.0 two-pass simulation
+│   ├── sim_akira.py             # Akira intermittent encryption simulation
+│   ├── sim_qilin.py             # Qilin percent-encryption simulation
+│   └── sim_depth.py / sim_dfs.py / sim_random.py   # Earlier traversal simulations
+├── docs/
+│   └── CODE_WALKTHROUGH.md      # Full file-by-file code walkthrough
+├── .github/workflows/           # CI lint + Docker build + landing page deploy
+├── start.sh                     # One-command startup script
+├── test_event.sh                # One-command pipeline test (sends CANARY_TOUCHED event)
 └── docker-compose.yml
 ```
 
