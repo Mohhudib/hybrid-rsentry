@@ -540,6 +540,7 @@ class Monitor:
             lineage_fn     = self.lineage_fn,
             entropy_fn     = self.entropy_fn,
             sim_fn         = self._sim_fn if hasattr(self, "_sim_fn") else None,
+            stop_event     = self._stop_event,
         )
 
     def set_sim(self, sim_path: str, sim_target: str, sim_traversal: str) -> None:

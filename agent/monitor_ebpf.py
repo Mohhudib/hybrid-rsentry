@@ -598,6 +598,7 @@ def run_sensor(
     sim_fn: Optional[Callable] = None,
     lineage_fn: Optional[Callable[[int], float]] = None,
     entropy_fn: Optional[Callable[[str], float]] = None,
+    stop_event = None,
 ) -> None:
     """
     Load BPF probes and run the detection loop.
@@ -777,6 +778,8 @@ def run_sensor(
     try:
         while True:
             b.perf_buffer_poll(timeout=0)
+            if stop_event and stop_event.is_set():
+                break
     except KeyboardInterrupt:
         pass
     finally:
