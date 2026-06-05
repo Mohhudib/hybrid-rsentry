@@ -133,7 +133,7 @@ class DetectionEngine:
         if np in self.canary_paths:
             return True
         bn = os.path.basename(np)
-        if bn.startswith("AAA_") or bn.startswith("zzz_"):
+        if bn.startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
             return True
         try:
             return os.stat(np).st_ino in self.canary_inodes
@@ -493,7 +493,10 @@ def seed_canaries(
             # Skip .git
             dirnames[:] = [d for d in dirnames if d != ".git"]
             for i in range(per_dir):
-                prefix = "AAA_" if i % 2 == 0 else "zzz_"
+                # 4 prefixes: AAA_, aaa_, ZZZ_, zzz_
+                # Sort order: AAA_ < aaa_ < ZZZ_ < zzz_ → always first in directory listing
+                prefixes = ["AAA_", "aaa_", "ZZZ_", "zzz_"]
+                prefix = prefixes[i % len(prefixes)]
                 ext = ATTRACTIVE_EXTS[i % len(ATTRACTIVE_EXTS)]
                 name = f"{prefix}rsentry_canary{i}{ext}"
                 full = os.path.join(dirpath, name)
@@ -1228,7 +1231,7 @@ def _selftest() -> int:
         check(".git skipped",
               not any(".git" in p for p in paths))
         check("uses AAA_/zzz_ prefixes",
-              all(os.path.basename(p).startswith(("AAA_", "zzz_")) for p in paths))
+              all(os.path.basename(p).startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")) for p in paths))
         check("attractive extensions",
               all(Path(p).suffix in ATTRACTIVE_EXTS for p in paths))
         check("files actually exist on disk",

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 CANARY_PREFIX = "AAA_"
 CANARY_SUFFIX = ".txt"
 CANARY_CONTENT = "RSENTRY_CANARY_DO_NOT_MODIFY"
-CANARY_COUNT = int(os.getenv("CANARY_COUNT", "15"))
+CANARY_COUNT = int(os.getenv("CANARY_COUNT", "30"))
 
 
 class FilesystemGraph:
@@ -18,16 +18,17 @@ class FilesystemGraph:
         self._cleanup_old_canaries()
 
     def _cleanup_old_canaries(self):
-        """Delete all AAA_ canary files before placing new ones to avoid orphans on restart."""
+        """Delete all canary files before placing new ones to avoid orphans on restart."""
         try:
-            for path in self.root.rglob(f"{CANARY_PREFIX}*{CANARY_SUFFIX}"):
-                try:
-                    path.unlink()
-                    logger.debug("Removed old canary: %s", path)
-                except OSError as exc:
-                    logger.warning("Could not remove canary %s: %s", path, exc)
+            for prefix in ["AAA_", "aaa_", "ZZZ_", "zzz_"]:
+                for path in self.root.rglob(f"{prefix}*{CANARY_SUFFIX}"):
+                    try:
+                        path.unlink()
+                        logger.debug("Removed old canary: %s", path)
+                    except OSError as exc:
+                        logger.warning("Could not remove canary %s: %s", path, exc)
         except Exception as exc:
-            logger.warning("Canary cleanup failed: %s", exc)
+            logger.warning("Canary cleanup error: %s", exc)
 
     def _bfs_dirs(self) -> list[Path]:
         """Return directories under root in BFS order, skipping hidden dirs."""
@@ -51,7 +52,9 @@ class FilesystemGraph:
         canaries: list[Path] = []
         for i in range(CANARY_COUNT):
             target_dir = dirs[i % len(dirs)]
-            canary_path = target_dir / f"{CANARY_PREFIX}{i:03d}{CANARY_SUFFIX}"
+            prefixes = ["AAA_", "aaa_", "ZZZ_", "zzz_"]
+            prefix = prefixes[i % len(prefixes)]
+            canary_path = target_dir / f"{prefix}{i:03d}{CANARY_SUFFIX}"
             try:
                 canary_path.write_text(CANARY_CONTENT)
                 canaries.append(canary_path)
@@ -65,4 +68,4 @@ class FilesystemGraph:
     def is_canary(self, path: str) -> bool:
         """Return True if the path matches the canary file naming convention."""
         name = Path(path).name
-        return name.startswith(CANARY_PREFIX) and name.endswith(CANARY_SUFFIX)
+        return name.startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")) and name.endswith(CANARY_SUFFIX)

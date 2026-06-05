@@ -435,7 +435,7 @@ class Monitor:
             canaries      = []
 
         if not canaries and _ebpf:
-            canaries = _ebpf.seed_canaries([watch_path], per_dir=2)
+            canaries = _ebpf.seed_canaries([watch_path], per_dir=5)
 
         raw_repo          = MarkovRepositioner(
             canary_paths=[Path(p) for p in canaries]
