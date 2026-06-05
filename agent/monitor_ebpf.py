@@ -661,7 +661,8 @@ static inline int __handle_unlink(void *ctx) {{
     p->files_deleted++;
     p->last_op_ts = ts;
     p->score = __calc_score(p);
-    {"u8 one = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &one); }" if (enforce and lsm) else ""}
+    // Behavioral score: ALERT only — final BLOCK decision in userspace
+    // (entropy check needed to avoid false positives with legitimate tools)
     proc_profiles.update(&pid, p);
     if (p->score >= SCORE_ALERT && !p->alerted) {{
         struct behavior_event_t ev = {{0}};
@@ -972,6 +973,56 @@ def run_sensor(
 
     b["rename_events"].open_perf_buffer(_handle_rename, page_cnt=8192)
     b["write_events"].open_perf_buffer(_handle_write, page_cnt=64)
+    def _handle_behavior(cpu, data, size):
+        ev   = b["behavior_events"].event(data)
+        pid  = ev.pid
+        comm = ev.comm.decode(errors="replace").rstrip("\x00")
+        ts   = time.time()
+        if pid == engine.self_pid: return
+        if comm in engine.ignore_comms: return
+        sample_path = ""
+        try:
+            import os as _os
+            for fd in _os.listdir(f"/proc/{pid}/fd"):
+                try:
+                    p = _os.readlink(f"/proc/{pid}/fd/{fd}")
+                    if _os.path.isfile(p) and not p.startswith("/proc"):
+                        sample_path = p
+                        break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        entropy = 0.0
+        if sample_path and engine.entropy_fn:
+            try:
+                entropy = float(engine.entropy_fn(sample_path))
+            except Exception:
+                pass
+        if entropy >= 6.5 or not sample_path:
+            event = engine._make_event(
+                "PROCESS_ANOMALY", "HIGH", pid, ev.ppid, comm,
+                sample_path, sample_path, ts,
+                extra={
+                    "trigger": "behavioral_score",
+                    "score": ev.score,
+                    "files_written": ev.files_written,
+                    "files_deleted": ev.files_deleted,
+                    "entropy_sample": round(entropy, 3),
+                },
+            )
+            if event:
+                try:
+                    _score_q.put_nowait((event, pid, sample_path))
+                except Exception:
+                    _emit(event)
+                if enforce and pid > 0 and entropy >= 6.5:
+                    try:
+                        b["blocked_pids"][b["blocked_pids"].Key(pid)] = b["blocked_pids"].Leaf(1)
+                    except Exception:
+                        pass
+                    _contain_q.put_nowait((pid, comm))
+    b["behavior_events"].open_perf_buffer(_handle_behavior, page_cnt=256)
     print("[ebpf] probes loaded — listening...")
 
     # Warm up
