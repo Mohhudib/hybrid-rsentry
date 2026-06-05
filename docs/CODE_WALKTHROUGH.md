@@ -1282,29 +1282,44 @@ RANSOMWARE_FAMILIES = {
 }
 ```
 
-**Family profiling:** Each known ransomware family has a signature profile. LockBit 5.0 generates 16-character random extensions and does two passes over files. Akira appends `.akiracrypt` intermittently. ESXi-targeting variants focus on `.vmdk`/`.vmx` files. When the rename event matches a family's signature, the severity is immediately escalated.
+**Family profiling:** Each known ransomware family has a signature profile. LockBit 5.0 generates 16-character random extensions and does two passes over files. Akira appends `.akiracrypt` intermittently. ESXi-targeting variants focus on `.vmdk`/`.vmx` files. Family identification escalates severity immediately.
 
 ---
 
 ```python
-IGNORE_COMMS = frozenset([
-    b'apt', b'apt-get', b'dpkg', b'git', b'pip', b'pip3',
-    b'npm', b'yarn', b'celery', b'uvicorn',
-])
-
-def _handle_perf_event(cpu, data, size):
-    event = bpf['events'].event(data)
-    if bytes(event.comm).rstrip(b'\x00') in IGNORE_COMMS:
-        return
-    # ... velocity tracking, family profiling, canary check ...
-    client.send_event(...)
+BEHAVIORAL_WEIGHTS = {
+    'rapid_del_write':    35,  # ≥2 del/sec + writes
+    'rename_velocity':    25,  # ≥3 renames in window
+    'total_ops_deleted':  15,  # total_ops>15 && deleted>3
+    'write_read_symmetry':15,  # write/read ratio anomaly
+    'child_spawn_files':  10,  # execve + file ops pattern
+}
 ```
 
-**FP suppression at the kernel level:** Instead of checking the whitelist after the event reaches userspace (as `exceptions.py` does for inotify), the eBPF sensor filters known-benign processes right in the `perf_buffer` callback — before any further processing. This is faster and saves context switches.
+**5-syscall behavioral scoring:** The `proc_profile` BPF map accumulates per-process counters across 5 syscall hooks (`openat`, `vfs_write`, `unlink`, `rename`, `execve`). Each signal adds to a 0–100 score. When a `behavior_event` fires, entropy is verified in userspace: ≥6.5 bits → BLOCK + SIGSTOP (confirms silent encryption); <6.5 bits → ALERT only (prevents false positives on legitimate batch operations).
 
-**Velocity burst detection:** A per-PID counter tracks how many renames have occurred in the last N seconds. If it exceeds the family-specific or default threshold, the event is escalated to CRITICAL even before entropy analysis completes — catching encryption bursts early.
+---
 
-**Connects to:** `client.py` (same AgentClient used by `monitor.py`), `containment.py` (CRITICAL events trigger immediate containment). Activated via `SENSOR_BACKEND=ebpf` in `.env`.
+```python
+# BPF LSM hook — registered when lsm=bpf is active
+# canary_inodes BPF map populated at startup
+# Blocks rename -EPERM at kernel boundary
+# blocked_pids map prevents all future renames by the PID
+```
+
+**BPF LSM canary blocking:** With `lsm=bpf` kernel boot param, `LSM_PROBE(path_rename)` checks the `canary_inodes` map. If the source inode is a canary, the rename returns `-EPERM` in nanoseconds — before any bytes are overwritten. The PID is added to `blocked_pids` to prevent further attempts. Without `lsm=bpf`, detection still works via the perf ring buffer but blocking happens in userspace after observation.
+
+**`IGNORE_COMMS` (40+ processes):** Docker, Redis, Postgres, Celery, uvicorn, git, apt, npm, Firefox, gnome-shell, systemd, and more are filtered in the perf event callback before any scoring. Benign batch operations (rsync, dpkg, npm, rm) are suppressed in the `unlink` hook specifically.
+
+**Markov disabled in eBPF mode:** `monitor.py` skips the Markov repositioner when `SENSOR_BACKEND=ebpf` — the eBPF `proc_profile` map tracks directory access patterns at the kernel level, making userspace Markov tracking redundant.
+
+**Run modes:**
+- `sudo -E python3 -m agent.monitor_ebpf` — normal operation
+- `python3 -m agent.monitor_ebpf --selftest` — unit-tests DetectionEngine (no kernel, no sudo)
+- `python3 -m agent.monitor_ebpf --print-bpf` — print compiled BPF C program
+- `sudo -E python3 -m agent.monitor_ebpf --mode audit` — alert only, no SIGSTOP
+
+**Connects to:** `client.py` (same AgentClient used by `monitor.py`), `containment.py` (contain() callback on CRITICAL), `entropy.py` (entropy_fn passed as callback for behavioral event verification). Activated via `SENSOR_BACKEND=ebpf` in `.env`.
 
 ---
 

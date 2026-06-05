@@ -31,12 +31,12 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 ## Features
 
 ### Detection Engine
-- **Canary Files** — Strategically placed bait files (`AAA_*.txt`) that trigger an immediate CRITICAL alert if touched or deleted by any process
+- **Canary Files** — Strategically placed bait files with 4 naming prefixes (`AAA_`, `aaa_`, `ZZZ_`, `zzz_`) placed at 30 per-directory locations for 4× coverage; any touch or rename triggers CRITICAL alert; in eBPF mode, renames are blocked at the kernel level (`-EPERM`) via BPF LSM before any data is overwritten
 - **Shannon Entropy Analysis** — Monitors file entropy deltas to detect encryption activity in progress; memory-capped at 5 000 files with LRU eviction and 65 KB partial reads to prevent OOM on large watch paths
 - **Process Lineage Scoring** — Scores suspicious process ancestry chains including parent names, spawn location, and binary SHA-256 verified against 416 K dpkg hashes (MATCH / MISMATCH / UNKNOWN verdicts)
 - **Ransomware Extension Detection** — Renames to `.enc`, `.locked`, `.wcry`, `.crypted` etc. trigger CRITICAL (if the source was a document) or HIGH alert
 - **Markov Chain Repositioning** — Adaptively moves canary files to predicted high-risk directories based on observed filesystem access patterns; blocks repositioning into `.git/`, `/proc/`, `/sys/`, `/dev/`, `/run/`
-- **eBPF Kernel Sensor** (`agent/monitor_ebpf.py`) — TRACEPOINT_PROBE-based rename syscall monitoring at the kernel boundary; velocity burst detection; ransomware family profiling (LockBit 5.0 / Akira / ESXi); BCC 0.35, kernel ≥ 6.19
+- **eBPF Kernel Sensor** (`agent/monitor_ebpf.py`) — 5-syscall behavioral detection (`openat`, `vfs_write`, `unlink`, `rename`, `execve`); per-process `proc_profile` BPF map with behavioral scoring (0–100); **BPF LSM canary blocking** (`-EPERM` in nanoseconds, requires `lsm=bpf`); velocity burst, family profiling (LockBit 5.0 / Akira / ESXi); BCC 0.35, kernel ≥ 6.19
 - **Combined Threat Scoring** — Fuses entropy and lineage signals into a weighted threat score for accurate severity classification
 - **False Positive Suppression** — Comprehensive whitelist system (`agent/exceptions.py`) covering browsers, package managers, system paths, archive formats, media files, and smart temp-dir filtering to eliminate noise on live Linux systems
 
@@ -243,7 +243,7 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 | `HOST_ID` | Yes | Identifier for this endpoint (e.g. `kali-endpoint-01`) |
 | `BACKEND_URL` | Yes | Backend URL the agent posts events to |
 | `WATCH_PATH` | Yes | Directory to monitor — **must be outside the project folder** |
-| `CANARY_COUNT` | No | Number of canary files to place (default: `15`) |
+| `CANARY_COUNT` | No | Number of canary files to place (default: `30`, across 4 prefixes) |
 | `NVIDIA_API_KEY` | Yes* | API key for live event AI analysis (also readable as `AI_API_KEY`) |
 | `NVIDIA_API_KEY_ALERTS` | Yes* | API key for on-demand alert AI analysis (also readable as `AI_API_KEY_ALERTS`) |
 | `AI_API_KEY_CEREBRAS` | No | Cerebras API key — if set, becomes the primary AI provider (fastest); NVIDIA/Groq used as fallback |
