@@ -5,7 +5,6 @@ Returns a suspicion score 0–100 based on parent names, spawn path, and SHA-256
 import hashlib
 import logging
 import time
-from pathlib import Path
 from typing import Optional
 from functools import lru_cache
 

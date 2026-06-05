@@ -35,7 +35,7 @@ try:
     load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 except ImportError:
     pass
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 

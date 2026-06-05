@@ -3,7 +3,6 @@ entropy.py — Rolling Shannon entropy delta engine.
 Fires ENTROPY_SPIKE alert when per-file entropy exceeds thresholds.
 Uses scipy, numpy, pandas for computation.
 """
-import math
 import time
 import logging
 from collections import deque

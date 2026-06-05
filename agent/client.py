@@ -5,9 +5,8 @@ import logging
 import os
 import socket
 import time
-import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 

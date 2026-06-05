@@ -29,13 +29,12 @@ import argparse
 import os
 import re
 import shutil
-import stat
 import sys
 import tempfile
 import time
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set
 
 # ---------------------------------------------------------------------------
 # IGNORE_COMMS — never alert or contain these process names
@@ -351,9 +350,8 @@ class DetectionEngine:
             try:
                 _result = self.lineage_fn(pid)
                 lineage_score = float(_result)
-                import sys as _sys
             except Exception as _e:
-                import sys as _sys
+                pass
         if self.entropy_fn and dst_path:
             try:
                 entropy_delta = float(self.entropy_fn(dst_path))
@@ -1041,7 +1039,7 @@ def run_sensor(
 
     # If sim_fn provided run it then drain events
     if sim_fn is not None:
-        import sys as _sys, os as _os
+        import sys as _sys
         _sys.path.insert(0, '/home/kali/hybrid-rsentry')
         _sys.path.insert(0, '/home/kali/hybrid-rsentry/simulations')
         sim_fn(b)
