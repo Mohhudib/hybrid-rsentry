@@ -626,7 +626,7 @@ static inline int __handle_rename(void *ctx,
     rename_count.update(&pid, &new_cnt);
     rename_ts.update(&pid, &ts);
 
-    {"u8 one = 1; if (new_cnt >= VELOCITY_THRESHOLD) { blocked_pids.update(&pid, &one); }" if (enforce and lsm) else ""}
+    {"// Interval-based fast block: 2nd rename within 1ms = machine speed = ransomware\n    u8 one = 1;\n    if (last && (ts - *last) < 1000000ULL) { blocked_pids.update(&pid, &one); }\n    else if (new_cnt >= VELOCITY_THRESHOLD) { blocked_pids.update(&pid, &one); }" if (enforce and lsm) else ""}
 
     struct proc_profile_t *p = proc_profiles.lookup(&pid);
     struct proc_profile_t newp = {{0}};
