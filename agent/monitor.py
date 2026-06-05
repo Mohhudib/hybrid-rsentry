@@ -573,7 +573,10 @@ class Monitor:
         logger.info("R-Sentry starting | backend=%s watch=%s dry_run=%s",
                     self.backend, self.watch_path, DRY_RUN)
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
-        threading.Thread(target=self._reposition_loop, daemon=True).start()
+        # Markov repositioner only needed for inotify backend
+        # eBPF monitors system-wide — fixed canaries sufficient
+        if self.backend != "ebpf":
+            threading.Thread(target=self._reposition_loop, daemon=True).start()
         signal.signal(signal.SIGTERM, lambda *_: self.stop())
         signal.signal(signal.SIGINT,  lambda *_: self.stop())
         if self.backend == "ebpf":
