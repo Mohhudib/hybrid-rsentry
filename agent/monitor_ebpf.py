@@ -288,13 +288,37 @@ class DetectionEngine:
 
         # Canary hit — highest priority
         if self._is_canary(src_path) or self._is_canary(dst_path):
-            sev = "CRITICAL"
-            evt = self._make_event(
-                "CANARY_TOUCHED", sev, pid, ppid, comm,
-                src_path, dst_path, ts,
-                extra={"src": src_path, "dst": dst_path,
-                       "outside_watch": not in_scope},
-            )
+            # Fast path: CANARY_TOUCHED fires immediately with no scoring
+            # lineage/entropy computed async after the fact
+            import datetime as _dt
+            _ts = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+            _iso = _ts.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            # Compute entropy only (fast, local) — skip lineage (requires /proc lookup)
+            _entropy = 0.0
+            if self.entropy_fn and dst_path:
+                try:
+                    _entropy = float(self.entropy_fn(dst_path))
+                except Exception:
+                    pass
+            evt = {
+                "host_id":       self.host_id,
+                "timestamp":     _iso,
+                "event_type":    "CANARY_TOUCHED",
+                "severity":      "CRITICAL",
+                "pid":           pid,
+                "process_name":  comm,
+                "file_path":     dst_path,
+                "lineage_score": 0.0,
+                "entropy_delta": _entropy,
+                "canary_hit":    True,
+                "details": {
+                    "sensor":        "ebpf",
+                    "decided_in":    "userspace",
+                    "src":           src_path,
+                    "dst":           dst_path,
+                    "outside_watch": not in_scope,
+                },
+            }
             self._active_pids.add(pid)
             return evt
 
@@ -604,6 +628,56 @@ def run_sensor(
     _emit    = emit    or (lambda e: print(e))
     _contain = contain or (lambda pid, comm: os.kill(pid, 19))  # SIGSTOP
 
+    import threading as _ct
+    import queue as _cq
+    _contain_q: _cq.Queue = _cq.Queue()
+    def _contain_worker():
+        while True:
+            item = _contain_q.get()
+            if item is None:
+                break
+            try:
+                _contain(item[0], item[1])
+            except Exception:
+                pass
+            _contain_q.task_done()
+    _ct.Thread(target=_contain_worker, daemon=True).start()
+
+    import queue as _sq
+    _score_q: _sq.Queue = _sq.Queue(maxsize=2000)
+
+    _lineage_cache: dict = {}
+    def _score_worker():
+        """
+        Async enrichment thread — runs AFTER containment fires.
+        Adds lineage + entropy to the event then emits to backend.
+        Detection and SIGSTOP never wait for this.
+        """
+        while True:
+            item = _score_q.get()
+            if item is None:
+                break
+            event, pid, dst_path = item
+            try:
+                if engine.lineage_fn and pid > 0:
+                    if pid not in _lineage_cache:
+                        _lineage_cache[pid] = round(float(engine.lineage_fn(pid)), 2)
+                    event["lineage_score"] = _lineage_cache[pid]
+                if engine.entropy_fn and dst_path:
+                    event["entropy_delta"] = round(float(engine.entropy_fn(dst_path)), 4)
+                if event["event_type"] != "CANARY_TOUCHED":
+                    event["severity"] = engine._severity(
+                        event.get("canary_hit", False),
+                        event["lineage_score"],
+                        event["entropy_delta"])
+            except Exception:
+                pass
+            _emit(event)
+            _score_q.task_done()
+
+    import threading as _st
+    _st.Thread(target=_score_worker, daemon=True).start()
+
     def _handle_rename(cpu, data, size):
         ev      = b["rename_events"].event(data)
         pid     = ev.pid
@@ -611,14 +685,18 @@ def run_sensor(
         oldname = ev.oldname.decode(errors="replace").rstrip("\x00")
         newname = ev.newname.decode(errors="replace").rstrip("\x00")
         ts      = time.time()
-        # Skip kernel-internal renames with no user-space paths
         if not oldname or not newname:
             return
         event = engine.observe_rename(pid, ev.ppid, comm, oldname, newname, ts=ts)
         if event:
-            _emit(event)
+            # ── FAST PATH: containment fires immediately ──────────────
             if enforce and pid > 0:
-                _contain(pid, comm)
+                _contain_q.put_nowait((pid, comm))
+            # ── ASYNC PATH: enrich then emit (non-blocking) ───────────
+            try:
+                _score_q.put_nowait((event, pid, newname))
+            except _sq.Full:
+                _emit(event)
 
     def _handle_write(cpu, data, size):
         ev    = b["write_events"].event(data)

@@ -102,22 +102,41 @@ def _make_emit_fn(agent_client) -> Callable[[dict], None]:
     Adapter: monitor_ebpf emits a full 10-field dict;
     client.AgentClient.send_event takes individual keyword args.
     Severity is already computed by DetectionEngine — pass it through.
+    Uses a background thread queue to avoid blocking the BPF poll loop.
     """
+    import queue as _queue
+    _q: _queue.Queue = _queue.Queue(maxsize=1000)
+
+    def _worker():
+        while True:
+            event = _q.get()
+            if event is None:
+                break
+            try:
+                agent_client.send_event(
+                    event_type    = event["event_type"],
+                    pid           = int(event["pid"]),
+                    process_name  = str(event["process_name"]),
+                    file_path     = str(event["file_path"]),
+                    lineage_score = float(event["lineage_score"]),
+                    entropy_delta = float(event["entropy_delta"]),
+                    canary_hit    = bool(event["canary_hit"]),
+                    details       = event.get("details", {}),
+                    severity      = event["severity"],
+                )
+            except Exception as exc:
+                logger.error("emit failed: %s | event=%s", exc, event.get("event_type"))
+            finally:
+                _q.task_done()
+
+    _t = threading.Thread(target=_worker, daemon=True)
+    _t.start()
+
     def emit(event: dict) -> None:
         try:
-            agent_client.send_event(
-                event_type    = event["event_type"],
-                pid           = int(event["pid"]),
-                process_name  = str(event["process_name"]),
-                file_path     = str(event["file_path"]),
-                lineage_score = float(event["lineage_score"]),
-                entropy_delta = float(event["entropy_delta"]),
-                canary_hit    = bool(event["canary_hit"]),
-                details       = event.get("details", {}),
-                severity      = event["severity"],
-            )
-        except Exception as exc:
-            logger.error("emit failed: %s | event=%s", exc, event.get("event_type"))
+            _q.put_nowait(event)
+        except _queue.Full:
+            logger.warning("emit queue full — dropping event %s", event.get("event_type"))
     return emit
 
 
@@ -418,6 +437,14 @@ class Monitor:
 
         self.emit_fn    = _make_emit_fn(self.client)
         self.contain_fn = _make_contain_fn(_contain, dry_run_contain, self.client)
+        # Pre-warm lineage cache (loads 492k dpkg hashes once at startup)
+        logger.info("Pre-warming lineage cache...")
+        try:
+            import os as _os
+            score_for_event(_os.getpid())
+            logger.info("Lineage cache ready")
+        except Exception:
+            pass
         self.lineage_fn = _make_lineage_fn(score_for_event)
         self.entropy_fn = _make_entropy_fn(self.entropy_engine)
 
@@ -598,6 +625,11 @@ def _selftest() -> int:
         "canary_hit": True, "details": {"sensor": "ebpf"},
     }
     emit(test_event)
+    # Wait for async emit queue to drain
+    import time as _t
+    for _ in range(100):
+        if len(sent) >= 1: break
+        _t.sleep(0.005)
     check("send_event called once", len(sent) == 1)
     s = sent[0]
     check("event_type passed",             s["event_type"]    == "CANARY_TOUCHED")
