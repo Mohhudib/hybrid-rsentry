@@ -29,7 +29,8 @@ def _env(key: str, default: str = "") -> str:
         for line in _ENV_FILE.read_text().splitlines():
             line = line.strip()
             if line.startswith(f"{key}=") and not line.startswith("#"):
-                return line[len(f"{key}="):].strip().strip('"').strip("'")
+                raw = line[len(f"{key}="):]
+                return raw.split(" #")[0].strip().strip('"').strip("'")
     return default
 
 
