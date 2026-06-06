@@ -1,8 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { getEvents } from '../api/client';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import api, { getEvents } from '../api/client';
 
 const RISK_COLORS = {
   CRITICAL: { text: 'text-red-400',    bg: 'bg-red-900/30',    border: 'border-red-700' },
@@ -122,7 +119,7 @@ export default function AIAnalystPage({
     setHealthLoading(true);
     try {
       const { data: events } = await getEvents({ limit: 100 });
-      await axios.post(`${API_URL}/api/ai/health`, { events });
+      await api.post('/api/ai/health', { events });
     } catch (err) {
       console.error('Health check failed:', err);
     } finally {
