@@ -806,7 +806,8 @@ def run_sensor(
         sys.exit("[ebpf] python3-bpfcc not installed. "
                  "Run: sudo apt install python3-bpfcc bpfcc-tools")
 
-    lsm_active = "bpf" in Path("/sys/kernel/security/lsm").read_text()
+    _lsm_path = Path("/sys/kernel/security/lsm")
+    lsm_active = "bpf" in _lsm_path.read_text() if _lsm_path.exists() else False
     enforce    = (mode == "enforce")
 
     print(f"[ebpf] mode={mode} lsm={lsm_active} "
