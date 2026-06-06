@@ -1,0 +1,26 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F", "E", "W"]
+ignore = [
+    "E501",  # line too long — handled by formatter separately
+    "E402",  # module-level import not at top (needed for conditional imports)
+    "F403",  # star imports (used in some agent modules)
+]
+exclude = [
+    "venv/",
+    "node_modules/",
+    "landing/",
+    ".git/",
+    "frontend/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast isolated tests with mocked dependencies",
+    "integration: requires running services (Redis, Postgres)",
+]
