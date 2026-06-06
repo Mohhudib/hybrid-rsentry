@@ -1,6 +1,7 @@
 """
 alerts.py — Alert management endpoints + evidence retrieval.
 """
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -234,7 +235,7 @@ async def forensic_export(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db
     ai_analysis = None
     try:
         r = _get_redis()
-        ai_data = r.get(f"rsentry:ai_analysis:{alert.event_id}")
+        ai_data = await asyncio.to_thread(r.get, f"rsentry:ai_analysis:{alert.event_id}")
         if ai_data:
             import json as _json
             ai_analysis = _json.loads(ai_data)
