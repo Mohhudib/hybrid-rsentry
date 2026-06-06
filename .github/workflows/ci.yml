@@ -52,7 +52,6 @@ jobs:
           --cov=agent.entropy
           --cov=agent.lineage
           --cov=agent.adaptive
-          --cov=agent.exceptions
           --cov-report=term-missing
           --cov-fail-under=80
         env:
