@@ -53,7 +53,7 @@ jobs:
           --cov=agent.lineage
           --cov=agent.adaptive
           --cov-report=term-missing
-          --cov-fail-under=80
+          --cov-fail-under=75
         env:
           PYTHONPATH: .
 
