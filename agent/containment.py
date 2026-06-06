@@ -110,7 +110,7 @@ def _capture_evidence(pid: int, output_dir: Optional[Path] = None) -> tuple[Opti
         evidence_dir = EVIDENCE_BASE / f"pid_{pid}_{ts}"
     else:
         evidence_dir = output_dir
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     captured: list[str] = []
     proc_dir = Path(f"/proc/{pid}")
