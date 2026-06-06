@@ -13,7 +13,7 @@ services:
         ipv4_address: 192.168.100.20
     environment:
       POSTGRES_USER: rsentry
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rsentry_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: rsentry_db
     ports:
       - "127.0.0.1:5432:5432"
@@ -56,7 +56,7 @@ services:
       rsentry_net:
         ipv4_address: 192.168.100.10
     environment:
-      DATABASE_URL: postgresql+asyncpg://rsentry:${POSTGRES_PASSWORD:-rsentry_pass}@postgres:5432/rsentry_db
+      DATABASE_URL: postgresql+asyncpg://rsentry:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/rsentry_db
       REDIS_URL: redis://redis:6379/0
       ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:80"
     ports:
@@ -83,7 +83,7 @@ services:
       - rsentry_net
     command: celery -A backend.workers.tasks.celery_app worker --loglevel=info --concurrency=4
     environment:
-      DATABASE_URL: postgresql+asyncpg://rsentry:${POSTGRES_PASSWORD:-rsentry_pass}@postgres:5432/rsentry_db
+      DATABASE_URL: postgresql+asyncpg://rsentry:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/rsentry_db
       REDIS_URL: redis://redis:6379/0
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_KEY_ALERTS: ${AI_API_KEY_ALERTS:-}
