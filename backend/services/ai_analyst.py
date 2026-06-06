@@ -236,7 +236,7 @@ def analyze_event(event: dict) -> dict:
     Returns {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
-        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
+        _rate_limit(_RATE_KEY_NVIDIA, NVIDIA_RATE_DELAY)
         result = _call_with_fallback(
             [_get_client_cerebras(), _get_client_events(), _get_client_alerts()],
             build_prompt(event)
@@ -266,7 +266,7 @@ def analyze_alert(event: dict) -> dict:
     Returns {"analysis_failed": True} on error — caller must not publish that.
     """
     try:
-        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
+        _rate_limit(_RATE_KEY_NVIDIA, NVIDIA_RATE_DELAY)
         result = _call_with_fallback(
             [_get_client_cerebras(), _get_client_alerts(), _get_client_events()],
             build_prompt(event)
@@ -341,7 +341,7 @@ def analyze_system_health(recent_events: list[dict]) -> dict:
     Rate-limited on the same key as live events.
     """
     try:
-        _rate_limit(_RATE_KEY_CEREBRAS, CEREBRAS_RATE_DELAY)
+        _rate_limit(_RATE_KEY_NVIDIA, NVIDIA_RATE_DELAY)
         result = _call_with_fallback(
             [_get_client_cerebras(), _get_client_events(), _get_client_alerts()],
             _build_health_prompt(recent_events)
