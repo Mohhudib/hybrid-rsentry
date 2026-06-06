@@ -122,6 +122,8 @@ class MarkovRepositioner:
             idx = np.argmin(np.abs(eigenvalues - 1.0))
             stationary = np.real(eigenvectors[:, idx])
             stationary = np.abs(stationary)
+            if stationary.sum() == 0:
+                raise np.linalg.LinAlgError("zero eigenvector")
             stationary /= stationary.sum()
         except np.linalg.LinAlgError:
             # Fallback: use row sums
