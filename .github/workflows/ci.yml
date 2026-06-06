@@ -49,10 +49,10 @@ jobs:
         # integration tests (tests/integration/) which are not yet written.
         run: >
           pytest tests/unit -v --tb=short
-          --cov=agent/entropy
-          --cov=agent/lineage
-          --cov=agent/adaptive
-          --cov=agent/exceptions
+          --cov=agent.entropy
+          --cov=agent.lineage
+          --cov=agent.adaptive
+          --cov=agent.exceptions
           --cov-report=term-missing
           --cov-fail-under=80
         env:
