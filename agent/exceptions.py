@@ -44,7 +44,7 @@ WHITELISTED_PATH_PREFIXES = [
 WHITELISTED_EXTENSIONS = {
     ".zip", ".gz", ".bz2", ".xz", ".zst", ".7z", ".rar", ".tar",
     ".tgz", ".tbz2", ".txz",
-    ".gpg", ".pgp", ".asc", ".enc", ".key", ".pem", ".crt", ".der",
+    ".gpg", ".pgp", ".asc", ".key", ".pem", ".crt", ".der",
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg",
     ".mp3", ".mp4", ".mkv", ".avi", ".mov", ".flac", ".ogg", ".wav",
     ".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ttf", ".otf", ".woff",
