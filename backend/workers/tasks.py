@@ -163,19 +163,16 @@ def analyze_event_ai(event_id: str, event_data: dict):
     # بعدين نحلل بالخلفية
     result = ai_analyst.analyze_event(event_data)
 
-    # نخزن الـ AI analysis في Redis عشان الـ forensic export يلاقيه
-    r.set(f"rsentry:ai_analysis:{event_data.get('event_id', event_id)}", 
-          json.dumps(result), ex=86400)  # تنتهي بعد 24 ساعة
+    if result.get("analysis_failed"):
+        return
 
-    # نبعث النتيجة الحقيقية لما تجهز
+    r.set(f"rsentry:ai_analysis:{event_id}", json.dumps(result), ex=86400)
+
     r.publish("rsentry:ai", json.dumps({
         "type": "ai_analysis_update",
         "event_id": event_id,
         **result,
     }))
-
-    if result.get("analysis_failed"):
-        return
 
     if result.get("risk_level") == "LOW" or result.get("threat_type") == "Benign":
         auto_ack_by_event.delay(event_id)
