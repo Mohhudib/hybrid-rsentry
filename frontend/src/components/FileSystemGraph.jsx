@@ -261,7 +261,7 @@ export default function FileSystemGraph({ highlightPath, newEvent }) {
 
     sim.on('end', autoFit);
 
-    return () => { sim.stop(); };
+    return () => { svg.interrupt(); svg.on('.zoom', null); sim.stop(); };
   }, [events, highlightPath]);
 
   return (
