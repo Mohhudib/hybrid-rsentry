@@ -42,20 +42,15 @@ async def list_alerts(
 @router.get("/counts")
 async def alert_counts(db: AsyncSession = Depends(get_db)):
     """Return exact active (unacknowledged) alert counts by severity — no limit."""
-    counts = {}
-    for sev in Severity:
-        result = await db.execute(
-            select(func.count()).select_from(Alert).where(
-                Alert.acknowledged == False,  # noqa: E712
-                Alert.severity == sev,
-            )
-        )
-        counts[sev.value] = result.scalar_one()
-
-    total_result = await db.execute(
-        select(func.count()).select_from(Alert).where(Alert.acknowledged == False)  # noqa: E712
-    )
-    counts["TOTAL"] = total_result.scalar_one()
+    sev_rows = (await db.execute(
+        select(Alert.severity, func.count(Alert.id))
+        .where(Alert.acknowledged == False)  # noqa: E712
+        .group_by(Alert.severity)
+    )).all()
+    counts = {sev.value: 0 for sev in Severity}
+    for sev, count in sev_rows:
+        counts[sev.value] = count
+    counts["TOTAL"] = sum(counts[sev.value] for sev in Severity)
     return counts
 
 

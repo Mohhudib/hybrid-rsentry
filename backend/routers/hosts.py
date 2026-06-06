@@ -43,25 +43,15 @@ async def host_risk_summary(host_id: str, db: AsyncSession = Depends(get_db)):
     if host is None:
         raise HTTPException(404, "Host not found")
 
-    # Count alerts by severity
-    alert_counts = {}
-    for sev in Severity:
-        count_result = await db.execute(
-            select(func.count()).select_from(Alert).where(
-                Alert.host_id == host_id,
-                Alert.severity == sev,
-                Alert.acknowledged == False,  # noqa: E712
-            )
-        )
-        alert_counts[sev.value] = count_result.scalar_one()
-
-    total_alert_result = await db.execute(
-        select(func.count()).select_from(Alert).where(
-            Alert.host_id == host_id,
-            Alert.acknowledged == False,  # noqa: E712
-        )
-    )
-    total_alerts = total_alert_result.scalar_one()
+    sev_rows = (await db.execute(
+        select(Alert.severity, func.count(Alert.id))
+        .where(Alert.host_id == host_id, Alert.acknowledged == False)  # noqa: E712
+        .group_by(Alert.severity)
+    )).all()
+    alert_counts = {sev.value: 0 for sev in Severity}
+    for sev, count in sev_rows:
+        alert_counts[sev.value] = count
+    total_alerts = sum(alert_counts.values())
 
     event_count_result = await db.execute(
         select(func.count()).select_from(Event).where(Event.host_id == host_id)
