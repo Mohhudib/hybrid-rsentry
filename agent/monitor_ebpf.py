@@ -643,7 +643,9 @@ static inline int __handle_rename(void *ctx,
     proc_profiles.update(&pid, p);
 
     struct rename_event_t ev = {{0}};
-    ev.pid = pid; ev.ppid = (u32)(bpf_get_current_pid_tgid() & 0xFFFFFFFF);
+    ev.pid = pid;
+    struct task_struct *_task_r = (struct task_struct *)bpf_get_current_task();
+    ev.ppid = (_task_r && _task_r->real_parent) ? _task_r->real_parent->tgid : 0;
     ev.ts = ts; ev.count = new_cnt;
     bpf_get_current_comm(&ev.comm, sizeof(ev.comm));
     bpf_probe_read_user_str(&ev.oldname, sizeof(ev.oldname), oldpath);
@@ -729,7 +731,9 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
     u8 *blocked = blocked_pids.lookup(&pid);
     if (!blocked && new_cnt < WRITE_BURST_THRESH) return 0;
     struct write_event_t ev = {{0}};
-    ev.pid = pid; ev.ppid = (u32)(bpf_get_current_pid_tgid() & 0xFFFFFFFF);
+    ev.pid = pid;
+    struct task_struct *_task_w = (struct task_struct *)bpf_get_current_task();
+    ev.ppid = (_task_w && _task_w->real_parent) ? _task_w->real_parent->tgid : 0;
     ev.ts = ts; ev.inode = file->f_inode->i_ino; ev.write_count = new_cnt;
     bpf_get_current_comm(&ev.comm, sizeof(ev.comm));
     write_events.perf_submit(ctx, &ev, sizeof(ev));
