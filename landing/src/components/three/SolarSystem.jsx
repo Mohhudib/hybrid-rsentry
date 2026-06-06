@@ -28,7 +28,6 @@ function Planet({ name, orbitRadius, angle, speed, size = 0.12 }) {
   const [hovered, setHovered] = useState(false);
   const [clicked, setClicked] = useState(false);
   const info   = TECH_INFO[name];
-  const color  = new THREE.Color(info.color);
 
   useFrame((_, delta) => {
     aRef.current += speed * delta;

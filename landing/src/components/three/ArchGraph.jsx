@@ -54,8 +54,6 @@ function DataPacket({ spline, speed, offset, color }) {
 function NodeBox({ node, isAI }) {
   const ref       = useRef();
   const [hov, setHov] = useState(false);
-  const color     = new THREE.Color(node.color);
-
   useFrame(({ clock }) => {
     if (!ref.current) return;
     if (isAI) {
