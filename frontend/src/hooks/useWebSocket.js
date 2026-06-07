@@ -27,9 +27,10 @@ export function useWebSocket(onMessage) {
     };
 
     ws.onmessage = (event) => {
+      if (event.data === 'pong') return;
       try {
         const data = JSON.parse(event.data);
-        if (data !== 'pong') onMessageRef.current?.(data);
+        onMessageRef.current?.(data);
       } catch (_) {}
     };
 
