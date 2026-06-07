@@ -29,7 +29,6 @@ CEREBRAS_RATE_DELAY = 0.5  # الأسرع
 NVIDIA_RATE_DELAY   = 3.0  # أبطأ
 
 # Rate limit Redis keys — one per provider
-_RATE_KEY_GROQ     = "rsentry:groq_last_call"
 _RATE_KEY_NVIDIA   = "rsentry:nvidia_last_call"
 _RATE_KEY_CEREBRAS = "rsentry:cerebras_last_call"
 
@@ -81,12 +80,6 @@ def _get_client_events():
     return _client_events
 
 
-def _reset_client_events():
-    global _client_events
-    _client_events = None
-    logger.warning("Event client cache cleared — will reload key on next call")
-
-
 def _get_client_alerts():
     global _client_alerts
     if _client_alerts is None:
@@ -100,12 +93,6 @@ def _get_client_alerts():
             _client_alerts = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
             _client_alerts._model = NVIDIA_MODEL
     return _client_alerts
-
-
-def _reset_client_alerts():
-    global _client_alerts
-    _client_alerts = None
-    logger.warning("Alert client cache cleared — will reload key on next call")
 
 
 def _get_client_cerebras():
