@@ -4,6 +4,7 @@ Returns a suspicion score 0–100 based on parent names, spawn path, and SHA-256
 """
 import hashlib
 import logging
+import os
 import time
 from typing import Optional
 from functools import lru_cache
@@ -87,16 +88,26 @@ class ProcessLineage:
         }
 
 
-@lru_cache(maxsize=512)
+_sha256_cache: dict[str, tuple[float, Optional[str]]] = {}  # path → (mtime, digest)
+
 def _sha256_of_exe(exe_path: str) -> Optional[str]:
+    try:
+        mtime = os.stat(exe_path).st_mtime
+    except OSError:
+        return None
+    cached = _sha256_cache.get(exe_path)
+    if cached and cached[0] == mtime:
+        return cached[1]
     try:
         h = hashlib.sha256()
         with open(exe_path, "rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
-        return h.hexdigest()
+        digest = h.hexdigest()
     except (OSError, PermissionError):
-        return None
+        digest = None
+    _sha256_cache[exe_path] = (mtime, digest)
+    return digest
 
 
 @lru_cache(maxsize=512)
