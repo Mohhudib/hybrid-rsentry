@@ -14,7 +14,11 @@ import backend.models.schemas  # noqa: F401
 
 config = context.config
 
-if config.config_file_name is not None:
+# Only configure logging from the .ini when it actually exists. fileConfig()
+# raises FileNotFoundError on a missing path, which would crash migrations even
+# though logging config is non-essential to running them (e.g. if alembic.ini
+# is absent from the image). Migration paths are pinned in code by main.py.
+if config.config_file_name is not None and os.path.exists(config.config_file_name):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

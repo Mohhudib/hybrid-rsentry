@@ -12,6 +12,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ ./backend/
 COPY agent/ ./agent/
+# alembic.ini is read at startup by main.py._run_migrations() (logging config +
+# script_location). Without it the container crashes in env.py's fileConfig().
+COPY alembic.ini ./
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
