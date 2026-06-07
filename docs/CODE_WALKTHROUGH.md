@@ -1323,6 +1323,156 @@ BEHAVIORAL_WEIGHTS = {
 
 ---
 
+## SIMULATIONS
+
+---
+
+### `simulations/sim_common.py` — Shared Simulation Engine
+
+**Role:** Provides the reusable building blocks that all attack simulation scripts import. Decouples the mechanics of corpus creation, backup/restore, and attack execution from the specific behavior of each ransomware family.
+
+---
+
+```python
+class Profile:
+    name: str
+    extensions: list[str]   # file types to target
+    skip_ext: list[str]     # extensions to leave alone
+    encrypt_pct: float      # fraction of corpus to encrypt (0.0–1.0)
+    two_pass: bool          # LockBit-style: rename then encrypt
+```
+
+**Why a `Profile`?** Each ransomware family has different targeting preferences. LockBit 5.0 encrypts everything (100%) in two passes; Akira is intermittent (partial corpus, unpredictable order); Qilin targets a percentage with a single pass. `Profile` captures these differences without duplicating logic.
+
+---
+
+```python
+def populate_corpus(target_dir, count=50):
+    """Creates count synthetic document files in target_dir."""
+
+def backup_corpus(target_dir) -> dict:
+    """Snapshots the corpus before simulation for restore."""
+
+def restore_corpus(target_dir, snapshot: dict):
+    """Restores files to their pre-simulation state."""
+```
+
+**Why backup/restore?** Simulations run against real directories. Without restore, a simulation would permanently rename or destroy documents in `WATCH_PATH`. The backup takes a dict of `{path: bytes}` before running and the restore writes them back — non-destructive testing.
+
+---
+
+```python
+def run_attack(profile: Profile, target_dir: str, agent_client=None):
+    """
+    Executes the attack pattern defined by profile.
+    Measures: files touched before detection, latency ms, FP rate.
+    """
+```
+
+**Measurement harness:** `run_attack` wraps the attack loop with timing. It posts a sentinel event to the agent client at the moment it begins, and records timestamps at each rename — so the detection latency (time from first file encrypted to CRITICAL alert) can be computed from backend events.
+
+**Connects to:** `sim_lockbit.py`, `sim_akira.py`, `sim_qilin.py` (all import Profile and run_attack). Used as a module: `from simulations.sim_common import Profile, run_attack, populate_corpus`.
+
+---
+
+### `simulations/sim_lockbit.py` — LockBit 5.0 Simulation
+
+**Role:** Mimics LockBit 5.0's characteristic two-pass encryption pattern to validate detection performance against the most sophisticated known ransomware family.
+
+---
+
+**How LockBit 5.0 works (and how this simulates it):**
+1. **Pass 1 (rename):** Every file in the corpus is renamed from `document.pdf` → `document.pdf.XXXXXXXXXXXXXXXX` (16-char random extension). This triggers the eBPF `rename` hook and extension detection layer.
+2. **Pass 2 (encrypt):** Each renamed file is opened and its bytes overwritten with high-entropy random data. This triggers the entropy analysis layer.
+
+The two-pass approach is designed to evade simple extension-rename detectors — by the time the extension is applied, the file is already encrypted.
+
+**Detection target:** The system should detect the threat (CRITICAL alert) within 3 files encrypted, latency < 500 ms, zero false positives, 100% coverage.
+
+**Usage:**
+```bash
+cd ~/hybrid-rsentry
+source venv/bin/activate
+python -m simulations.sim_lockbit
+```
+
+---
+
+### `simulations/sim_akira.py` — Akira Simulation
+
+**Role:** Simulates Akira's intermittent encryption pattern — it randomly skips files (targeting ~60% of the corpus) and uses the `.akiracrypt` extension.
+
+**Why intermittent matters:** Intermittent encryption evades systems that require a sustained burst of events. Akira's design makes it harder for velocity-based detection (e.g., "X renames per second") to trigger. The eBPF `proc_profile` behavioral score and lineage scorer must accumulate enough signal from the subset of files it does touch.
+
+---
+
+### `simulations/sim_qilin.py` — Qilin Simulation
+
+**Role:** Simulates Qilin's percent-based approach — encrypts a configurable fraction of the corpus in a single pass with a fixed extension.
+
+**Why percent-encryption matters:** Qilin is designed for maximum damage before detection. It tries to encrypt as much as possible in the first wave. The canary layer (any canary hit = CRITICAL) must fire before the `encrypt_pct` threshold is reached.
+
+---
+
+## TESTS
+
+---
+
+### `tests/unit/` — 71-Test Unit Suite
+
+**Role:** Isolated unit tests for the three most critical agent modules — `entropy.py`, `lineage.py`, and `adaptive.py` — plus severity classification logic. No live services required; all external dependencies are mocked.
+
+**Run:**
+```bash
+pip install -r requirements-dev.txt
+pytest tests/unit/ -v
+# or with coverage:
+pytest tests/unit/ --cov=agent.entropy --cov=agent.lineage --cov=agent.adaptive --cov-report=term-missing
+```
+
+**Coverage:** 89% across the three modules. Coverage gate (75%) is enforced in CI.
+
+---
+
+**Key test areas:**
+
+| Module | What's tested |
+|---|---|
+| `test_entropy.py` | Shannon entropy calculation accuracy; delta threshold firing (3.5 bits MEDIUM, 5.0 HIGH); partial read (65 KB cap); memory cap (5 000-file LRU eviction); rolling window correctness |
+| `test_lineage.py` | Scoring signal weights (suspicious parent +30, spawn path +25, etc.); dpkg hash MATCH/MISMATCH/UNKNOWN verdicts; rapid process exit (+40 baseline); SHA-256 LRU cache hits |
+| `test_adaptive.py` | Markov transition probability calculation; repositioning threshold (≥70%, 10 min observations); `_is_safe_target()` blocks `.git/`, `/proc/`, `/sys/`, `/dev/`, `/run/` |
+| `test_severity.py` | Combined score formula (`lineage×0.6 + entropy×0.4`); CRITICAL/HIGH/MEDIUM boundary conditions |
+| `test_simulation_safety.py` | Verifies simulation scripts don't leave corrupted state after backup/restore cycle |
+
+---
+
+### `tests/test_lockbit.py` — LockBit 5.0 4-Metric Evaluation
+
+**Role:** End-to-end validation of detection performance against the LockBit 5.0 simulation. This is the capstone test that proves the system meets its design targets.
+
+---
+
+```python
+TARGETS = {
+    'files_before_detection': 3,   # Must detect within first 3 files encrypted
+    'latency_ms':            500,  # Alert must fire in < 500 ms
+    'false_positive_rate':     0,  # Zero false positives
+    'coverage_pct':          100,  # 100% of corpus files detected
+}
+```
+
+**Why these 4 metrics?** They map to real-world damage constraints:
+- **Files < 3:** An attacker who encrypts only 2 files before being caught causes negligible damage.
+- **Latency < 500 ms:** In 500 ms, LockBit can encrypt hundreds of files. Sub-500ms detection stops the attack before significant damage.
+- **FP rate = 0%:** False positives erode operator trust. Even one false CRITICAL containment is a denial-of-service on the endpoint.
+- **Coverage = 100%:** Every file touched by the simulation must appear in the detection events — no blind spots.
+
+**All 4 targets are met as of v2.1.0.**
+
+**Connects to:** `simulations/sim_lockbit.py` (runs the simulation), backend HTTP client (queries `/api/events` to measure detection timing), `agent/entropy.py` + `agent/lineage.py` (the modules under test).
+
+---
+
 ## FRONTEND
 
 ---

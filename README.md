@@ -12,6 +12,8 @@
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis)](https://redis.io)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat-square&logo=postgresql)](https://postgresql.org)
 [![Tests](https://img.shields.io/badge/tests-71%20passing-brightgreen?style=flat-square)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen?style=flat-square)](#testing)
+[![Version](https://img.shields.io/badge/version-v2.1.0-blue?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **[Landing Page](https://mohhudib.github.io/hybrid-rsentry/)**
@@ -374,6 +376,19 @@ A security audit of this repository was conducted in May 2026. The following iss
 **Dependabot:** The frontend has been migrated from Create React App to Vite, which resolved all 26 npm security alerts that were embedded in the `react-scripts` build toolchain.
 
 For reporting vulnerabilities, see [SECURITY.md](SECURITY.md).
+
+---
+
+## Roadmap & Issue Tracking
+
+Development is tracked in the **[R-Sentry Roadmap GitHub Project](https://github.com/users/Mohhudib/projects/1)**.
+
+| Milestone | Scope | Target |
+|---|---|---|
+| [v2.1.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/1) | CI hardening, Dependabot security fixes, eBPF Kali validation | 2026-06-15 |
+| [v2.2.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/2) | Integration tests, Exception Management UI, Alembic migrations | 2026-07-31 |
+
+See the [Roadmap wiki page](https://github.com/Mohhudib/hybrid-rsentry/wiki/Roadmap) for the full list of completed and planned items.
 
 ---
 

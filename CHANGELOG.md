@@ -4,12 +4,66 @@ All notable changes to Hybrid R-Sentry are documented here.
 
 ---
 
-## [Unreleased]
+## [2.1.0] — 2026-06-07
 
-### Open
-- Frontend CRA → Vite migration (removes 26 build-toolchain npm alerts)
-- Integration tests (tests/integration/ is currently empty)
-- Major dependency bumps pending test: React 18→19, watchdog 4→6, websockets 12→16, date-fns 3→4, uvicorn 0.30→0.48, lucide-react 0.395→1.16
+### Added
+- **GitHub Projects board** — "R-Sentry Roadmap" project with Backlog / In Progress / Review / Done columns; all open issues (#51–#55) linked
+- **Milestones** — v2.1.0 (CI, Docs & Security, due 2026-06-15) and v2.2.0 (Feature Completeness, due 2026-07-31) created; issues assigned to milestones
+
+### Changed
+- **eBPF Phase 3 — full 5-syscall behavioral detection system:**
+  - `openat`, `vfs_write`, `unlink`, `rename`, `execve` all covered via kprobe/tracepoint
+  - `proc_profile` BPF map: 10 000-entry per-process behavioral profile with `score` (0–100) and `alerted` flag
+  - Behavioral scoring: +35 rapid unlink+write, +25 rename velocity ≥3, +15 total_ops>15 && deleted>3, +15 write/read symmetry, +10 child spawning + file ops
+  - `BPF LSM` canary blocking: `canary_inodes` map + `LSM_PROBE(path_rename)` returns `-EPERM` in nanoseconds (requires `lsm=bpf` kernel boot param)
+  - `blocked_pids` BPF map: velocity burst blocks all subsequent renames by the offending PID at kernel level
+  - Ransomware family profiling: LockBit 5.0 (16-char extension, two-pass), Akira (`.akiracrypt`, intermittent), ESXi-targeting (`.vmdk`/`.vmx`/`.vmem`)
+  - Entropy verification on behavior events: entropy ≥ 6.5 → BLOCK + SIGSTOP; < 6.5 → ALERT only (prevents false positives)
+  - `perf_buffer` optimized: `page_cnt` 2048 → 8192, timeout 1 ms → 0 (near-zero latency)
+  - Interval-based rename blocking with per-file encrypted flag
+- **4-prefix canary system** — `AAA_`, `aaa_`, `ZZZ_`, `zzz_` naming prefixes give 4× surface area vs. single-prefix approach; all 4 variants excluded from `.gitignore`
+- **Markov repositioner disabled in eBPF mode** — eBPF `proc_profile` map tracks access patterns directly; Markov is only active in inotify backend
+
+### CI & Code Quality
+- **GitHub Actions CI workflow** — backend lint (ruff), Docker build, landing page deploy; Dependabot auto-merge configuration added
+- **Ruff linting** — narrowed to F-series; all 25 F401/F841 violations fixed across `agent/` and `backend/`
+- **Coverage gate** — 75% minimum coverage enforced in CI for `entropy.py`, `lineage.py`, `adaptive.py`
+- **Pinned action versions** — all GitHub Actions workflows use exact commit SHA pins (supply chain security hardening)
+
+### Documentation
+- README and `docs/CODE_WALKTHROUGH.md` updated for 5-syscall eBPF, BPF LSM, and 4-prefix canary system
+- All 11 wiki pages refreshed (Installation, Detection Engine, Architecture, Roadmap, Known Issues)
+
+---
+
+## [2.0.0] — 2026-06-03
+
+### Added
+- **SIEM Dashboard redesign** — Kibana-style 3-column layout: **FacetRail** (left filter panel with collapsible field groups) + center (MetricsStrip + stacked AlertsHistogram + sortable AlertsTable) + **DetailFlyout** (right panel on alert click)
+- **TopBar** — horizontal navigation bar with 6 tabs (Overview, Alerts, Hosts, Detections, AI Analyst, Reports) + live unacknowledged alert count badge
+- **StatusBar** — bottom status bar showing agents, EPS, WebSocket status, last refreshed, cluster name
+- **D3 v7 force-directed filesystem graph** — Obsidian-style node graph inside `DetailFlyout` and `EventDetailModal`; zoom, drag, tooltip, selected path pulled to center with blue glow
+- **EventDetailModal** — click any event in `TacticalResponseLog` to open a modal with Summary / Entity / MITRE / Filesystem / Raw JSON tabs
+- **React 19** upgrade from React 18 (`index.js` → `index.jsx`, all hooks updated, Recharts 2.12.7 React 19 compatible)
+- **Vite 5 migration** — replaced Create React App (`react-scripts`) entirely; fixes all 26 npm security alerts embedded in CRA build toolchain; `npm run build` now outputs to `frontend/dist/`
+- **Node.js 22** — used in CI (`deploy-landing.yml`) and Docker build (`Dockerfile.frontend`)
+- **`process.env` shim** — `vite.config.js` defines `{ 'process.env': {} }` to handle legacy CRA-era env references without code changes
+- **Attack simulations** — `simulations/sim_lockbit.py` (LockBit 5.0, two-pass, 16-char extension), `sim_akira.py` (intermittent encryption), `sim_qilin.py` (percent-encryption), shared `sim_common.py` engine
+- **LockBit 5.0 evaluation** — `tests/test_lockbit.py` 4-metric test suite: files-before-detection < 3, latency < 500 ms, FP = 0%, coverage = 100% — all targets met
+- **Multi-provider AI fallback chain** documented and exposed: Cerebras (optional, fastest) → NVIDIA/Groq key 1 → key 2
+- **3D cinematic landing page** — deployed at [https://mohhudib.github.io/hybrid-rsentry/](https://mohhudib.github.io/hybrid-rsentry/) (React Three Fiber + Framer Motion, 8 sections, lazy-loaded 3D canvases)
+
+### Fixed
+- **CORS** — `api/client.js` changed from hardcoded `http://localhost:8000` to relative path `''`; Axios now uses `/api/…` routed through Vite proxy regardless of which port Vite picks
+- **Duplicate process port conflict** — clean restart procedure documented in Known Issues & Fixes wiki page
+- Pydantic version pins loosened (`chore(deps): loosen pydantic version pins`) for broader Python 3.13 compatibility
+
+### Dependencies
+- `date-fns` 3 → 4.3.0
+- `lucide-react` 0.395 → 1.16.0
+- `watchdog` 4 → 6
+- `websockets` 12 → 14
+- `uvicorn` 0.28 → 0.30
 
 ---
 
