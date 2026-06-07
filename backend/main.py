@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.models.database import engine, Base
 from backend.routers import events, alerts, hosts, ws
@@ -65,7 +65,7 @@ async def root():
 
 
 class HealthCheckRequest(BaseModel):
-    events: list[dict] = []
+    events: list[dict] = Field(default=[], max_length=200)
 
 
 @app.post("/api/ai/health")
