@@ -22,4 +22,4 @@ python-multipart==0.0.27
 python-dotenv==1.2.2
 
 # AI Analysis
-openai>=1.30.0
+openai>=2.41.0
