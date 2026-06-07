@@ -6,11 +6,28 @@ function stamp() {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export default function StatusBar({ connected, hostCount, eventRate }) {
+export default function StatusBar({ connected }) {
   const [time, setTime] = useState(stamp());
+  const [hostCount, setHostCount] = useState(null);
+
   useEffect(() => {
     const t = setInterval(() => setTime(stamp()), 30000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchHosts = async () => {
+      try {
+        const res = await fetch('/api/hosts');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setHostCount(Array.isArray(data) ? data.length : null);
+      } catch (_) {}
+    };
+    fetchHosts();
+    const t = setInterval(fetchHosts, 60000);
+    return () => { cancelled = true; clearInterval(t); };
   }, []);
 
   return (
