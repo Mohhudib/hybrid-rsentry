@@ -14,5 +14,8 @@ def fake_process():
 def tmp_canary_dir(tmp_path):
     (tmp_path / "AAA_secret.docx").write_bytes(b"fake content")
     (tmp_path / "AAA_passwords.txt").write_bytes(b"more fake content")
+    (tmp_path / "aaa_secret.xlsx").write_bytes(b"fake content")
+    (tmp_path / "ZZZ_decoy.pdf").write_bytes(b"fake content")
+    (tmp_path / "zzz_decoy.db").write_bytes(b"fake content")
     (tmp_path / "regular_file.txt").write_bytes(b"normal data")
     return tmp_path
