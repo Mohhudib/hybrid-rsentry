@@ -80,3 +80,44 @@ class TestSummary:
         assert s["n_states"] == 0
         assert s["n_observations"] == 0
         assert s["should_reposition"] is False
+
+
+class TestMarkovGate:
+    """Monitor.start() must not launch the Markov repositioner for the eBPF backend."""
+
+    def test_ebpf_backend_skips_repositioner(self, tmp_path):
+        import threading
+        from unittest.mock import patch
+
+        watch = tmp_path / "watch"
+        watch.mkdir()
+
+        started_targets = []
+
+        original_start = threading.Thread.start
+
+        def _capture_start(self_thread):
+            started_targets.append(getattr(self_thread, '_target', None))
+
+        with patch.object(threading.Thread, 'start', _capture_start):
+            with patch('agent.monitor.Monitor._run_ebpf', return_value=None):
+                with patch('agent.monitor.Monitor._heartbeat_loop', return_value=None):
+                    with patch('agent.monitor._validate_watch_path', return_value=None):
+                        import signal as _sig
+                        with patch('signal.signal'):
+                            from agent.monitor import Monitor
+                            m = Monitor.__new__(Monitor)
+                            m.backend = 'ebpf'
+                            m.watch_path = str(watch)
+                            m._stop_event = threading.Event()
+                            m._repositioner = None
+                            m._sim_fn = None
+                            m._agent_client = None
+                            m.start()
+
+        reposition_targets = [
+            t for t in started_targets
+            if t is not None and getattr(t, '__name__', '') == '_reposition_loop'
+        ]
+        assert reposition_targets == [], \
+            "eBPF backend must not start the Markov repositioner thread"
