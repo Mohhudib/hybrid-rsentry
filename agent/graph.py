@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+import time
 from collections import deque
 from pathlib import Path
 
@@ -9,6 +11,38 @@ CANARY_PREFIX = "AAA_"
 CANARY_SUFFIX = ".txt"
 CANARY_CONTENT = "RSENTRY_CANARY_DO_NOT_MODIFY"
 CANARY_COUNT = int(os.getenv("CANARY_COUNT", "30"))
+
+# Feature 3: realistic decoy headers so ransomware that samples magic bytes /
+# file type before encrypting still treats canaries as genuine documents.
+_PDF_HEADER = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n"
+_DOCX_HEADER = b"PK\x03\x04\x14\x00\x06\x00\x08\x00\x00\x00\x21\x00"  # OOXML/zip magic
+# Backdated-mtime window: canaries look like long-lived real files (30-400 days).
+_CANARY_MIN_AGE_DAYS = 30
+_CANARY_MAX_AGE_DAYS = 400
+# Realistic body size range (20-100 KB).
+_CANARY_MIN_BYTES = 20 * 1024
+_CANARY_MAX_BYTES = 100 * 1024
+
+
+def _canary_content() -> bytes:
+    """Return 20-100 KB of realistic-looking document bytes (PDF or DOCX header
+    followed by a high-entropy body, so size/type sampling sees a real file)."""
+    header = random.choice([_PDF_HEADER, _DOCX_HEADER])
+    size = random.randint(_CANARY_MIN_BYTES, _CANARY_MAX_BYTES)
+    body = os.urandom(max(0, size - len(header)))
+    return header + body
+
+
+def _backdate(path: Path) -> None:
+    """Backdate atime/mtime to a random point 30-400 days in the past so the
+    decoy looks like an aged real document rather than a freshly planted file."""
+    try:
+        age = (random.randint(_CANARY_MIN_AGE_DAYS, _CANARY_MAX_AGE_DAYS) * 86400
+               + random.randint(0, 86400))
+        past = time.time() - age
+        os.utime(path, (past, past))
+    except OSError as exc:
+        logger.debug("Could not backdate canary %s: %s", path, exc)
 
 
 class FilesystemGraph:
@@ -62,7 +96,8 @@ class FilesystemGraph:
             prefix = prefixes[i % len(prefixes)]
             canary_path = target_dir / f"{prefix}{i:03d}{CANARY_SUFFIX}"
             try:
-                canary_path.write_text(CANARY_CONTENT)
+                canary_path.write_bytes(_canary_content())
+                _backdate(canary_path)
                 canaries.append(canary_path)
                 logger.debug("Placed canary: %s", canary_path)
             except OSError as exc:
