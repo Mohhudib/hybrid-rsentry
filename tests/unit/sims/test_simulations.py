@@ -3,6 +3,7 @@ tests/unit/sims/test_simulations.py
 Safety and correctness tests for simulation scripts
 """
 import inspect
+import re
 import pytest
 import simulations.sim_dfs as sim_dfs
 import simulations.sim_random as sim_random
@@ -34,8 +35,16 @@ class TestSafety:
         for m in _ALL_SIMS:
             assert "SIGSTOP" not in inspect.getsource(m), f"{m.__name__} has SIGSTOP"
     def test_no_agent_monitor_import(self):
+        # Sims must not import the live watchdog `agent.monitor` — importing it
+        # pulls in containment side effects (SIGSTOP/iptables) and the real
+        # monitor loop. The pure, side-effect-free DetectionEngine in
+        # `agent.monitor_ebpf` is the designed validation target (session_09)
+        # and is explicitly allowed, so match `agent.monitor` only when it is
+        # NOT immediately followed by `_ebpf`.
+        forbidden = re.compile(r"agent\.monitor(?!_ebpf)")
         for m in _ALL_SIMS:
-            assert "agent.monitor" not in inspect.getsource(m)
+            assert not forbidden.search(inspect.getsource(m)), \
+                f"{m.__name__} imports the live agent.monitor watchdog"
     def test_no_canary_files_touched(self):
         for m in _LEGACY_SIMS:
             src = inspect.getsource(m)
