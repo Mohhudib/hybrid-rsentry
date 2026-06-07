@@ -205,7 +205,7 @@ def main() -> int:
     rows = [
         ("Files before detection (avg)", f"{avg_files:.1f}",   "< 3",    avg_files < 3),
         ("Detection latency ms (avg)",   f"{avg_latency:.3f}", "< 500ms", avg_latency < 500),
-        ("False-positive rate",          f"{fp['fp_rate_pct']}%", "< 5%", fp["fp_rate_pct"] < 5),
+        ("False-positive rate",          f"{fp['fp_rate_pct']}%", "< 2%", fp["fp_rate_pct"] < 2),
         ("Coverage rate",                f"{coverage_pct:.0f}%",  "> 95%", coverage_pct > 95),
     ]
     all_pass = True
