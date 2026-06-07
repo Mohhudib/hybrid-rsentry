@@ -182,9 +182,10 @@ def _capture_evidence(pid: int, output_dir: Optional[Path] = None) -> tuple[Opti
 def _iptables_drop(pid: int) -> Optional[str]:
     """Insert an OUTPUT iptables rule to drop traffic from the process owner."""
     try:
-        proc = psutil.Process(pid)
-        uid = proc.uids().real
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        status = Path(f"/proc/{pid}/status").read_text()
+        uid_line = next(l for l in status.splitlines() if l.startswith("Uid:"))
+        uid = int(uid_line.split()[1])  # real UID is the first field
+    except (FileNotFoundError, StopIteration, ValueError, OSError):
         return None
 
     # Never block uid=0 (root) — would block the agent itself
