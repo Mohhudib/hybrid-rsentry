@@ -61,7 +61,7 @@ async function fetchAlertsWithEvents(params) {
   if (params.severity && params.severity !== 'ALL') q.set('severity', params.severity);
   if (params.acknowledged !== undefined) q.set('acknowledged', String(params.acknowledged));
   if (params.dateFrom) q.set('date_from', new Date(params.dateFrom).toISOString());
-  if (params.dateTo) q.set('date_to', new Date(params.dateTo + 'T23:59:59').toISOString());
+  if (params.dateTo) q.set('date_to', new Date(params.dateTo + 'T23:59:59Z').toISOString());
   const res = await fetch(`/api/alerts/with-events?${q.toString()}`);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
   return res.json();
@@ -469,7 +469,7 @@ export default function ReportsPage() {
     })
     .filter((a) => {
       if (dateFrom && new Date(a.created_at) < new Date(dateFrom)) return false;
-      if (dateTo && new Date(a.created_at) > new Date(dateTo + 'T23:59:59')) return false;
+      if (dateTo && new Date(a.created_at) > new Date(dateTo + 'T23:59:59Z')) return false;
       return true;
     });
 
