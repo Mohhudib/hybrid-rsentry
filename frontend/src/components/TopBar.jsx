@@ -47,12 +47,6 @@ export default function TopBar({ activePage, onNavigate, alertCount, connected }
         <i className="fa-solid fa-layer-group" style={{ fontSize: 11, color: 'var(--muted)' }} />
         rsentry-prod
       </button>
-      <button className="siem-icon-btn" title="Alerts">
-        <i className="fa-regular fa-bell" style={{ fontSize: 13 }} />
-      </button>
-      <button className="siem-icon-btn" title="Help">
-        <i className="fa-regular fa-circle-question" style={{ fontSize: 13 }} />
-      </button>
       <div
         title={connected ? 'WebSocket connected' : 'Disconnected'}
         style={{ width: 28, height: 28, borderRadius: '50%', marginLeft: 4, background: connected ? 'linear-gradient(135deg, #3a6ea5, #2f5680)' : 'linear-gradient(135deg, #7f1d1d, #991b1b)', display: 'grid', placeItems: 'center', color: '#fff', fontSize: 11, fontWeight: 600 }}
