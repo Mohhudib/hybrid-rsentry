@@ -44,10 +44,31 @@ class TestLineageSeverity:
             r = score_process(1234)
             if r: assert r.score <= 100.0
 
+import pytest
+
+CANARY_PREFIXES = ["AAA_", "aaa_", "ZZZ_", "zzz_"]
+
 class TestCanarySeverity:
-    def test_canary_pattern_matches(self, tmp_canary_dir):
-        assert len(list(tmp_canary_dir.glob("AAA_*"))) == 2
-    def test_canary_hit_means_critical(self):
-        assert ("CRITICAL" if True else "LOW") == "CRITICAL"
-    def test_no_canary_hit_not_critical(self):
-        assert ("CRITICAL" if False else "LOW") != "CRITICAL"
+    def test_all_four_canary_prefixes_present(self, tmp_canary_dir):
+        for prefix in CANARY_PREFIXES:
+            assert any(tmp_canary_dir.glob(f"{prefix}*")), \
+                f"No canary file with prefix {prefix!r} in tmp_canary_dir"
+
+    @pytest.mark.parametrize("prefix", CANARY_PREFIXES)
+    def test_is_canary_detects_all_prefixes(self, tmp_path, prefix):
+        from agent.graph import FilesystemGraph
+        g = FilesystemGraph.__new__(FilesystemGraph)
+        g.root = tmp_path
+        g.canary_paths = []
+        for ext in [".txt", ".docx", ".vmdk"]:
+            assert g.is_canary(f"/watched/{prefix}canary{ext}"), \
+                f"is_canary() missed prefix={prefix!r} ext={ext!r}"
+
+    def test_non_canary_not_detected(self, tmp_path):
+        from agent.graph import FilesystemGraph
+        g = FilesystemGraph.__new__(FilesystemGraph)
+        g.root = tmp_path
+        g.canary_paths = []
+        assert not g.is_canary("/watched/report.docx")
+        assert not g.is_canary("/watched/important_file.txt")
+        assert not g.is_canary("/watched/aaa_lookalike")  # no trailing _ variant
