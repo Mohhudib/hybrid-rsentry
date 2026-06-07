@@ -698,6 +698,8 @@ def build_bpf(enforce: bool = True, lsm: bool = False) -> str:
 LSM_PROBE(path_rename,
           const struct path *old_dir, struct dentry *old_dentry,
           const struct path *new_dir, struct dentry *new_dentry) {
+    // Feature 6: fail-secure — if the agent heartbeat is stale, deny.
+    if (__heartbeat_stale()) return -EPERM;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     u8 *blocked = blocked_pids.lookup(&pid);
     if (blocked && *blocked) return -EPERM;
@@ -716,6 +718,8 @@ LSM_PROBE(path_rename,
 // Feature 4: deny exec() for any PID armed in blocked_pids (e.g. a ransomware
 // parent caught spawning vssadmin/bcdedit/wbadmin/shadowcopy). Returns -EPERM.
 LSM_PROBE(bprm_check_security, struct linux_binprm *bprm) {
+    // Feature 6: fail-secure — if the agent heartbeat is stale, deny exec.
+    if (__heartbeat_stale()) return -EPERM;
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     u8 *blocked = blocked_pids.lookup(&pid);
     if (blocked && *blocked) return -EPERM;
@@ -746,6 +750,21 @@ static inline int __rate_limited(u32 pid, u64 ts) {
 }
 """
     _rl_check = "if (__rate_limited(pid, ts)) return 0;"
+
+    # Feature 6: heartbeat staleness check (fail-secure). bpf_ktime_get_ns() is
+    # CLOCK_MONOTONIC, so userspace writes the matching monotonic clock (see
+    # run_sensor). hb==0 means "not yet initialized" → allow (don't brick at
+    # startup before the first pulse).
+    _heartbeat_helper = """
+static inline int __heartbeat_stale() {
+    int zero = 0;
+    u64 *hb = heartbeat.lookup(&zero);
+    if (!hb || *hb == 0) return 0;
+    u64 now = bpf_ktime_get_ns();
+    if (now > *hb && (now - *hb) > HEARTBEAT_STALE_NS) return 1;
+    return 0;
+}
+"""
 
     # Feature 4: kernel-space substring matcher for backup-destruction tooling.
     # Scans a 64-byte buffer for vssadmin / bcdedit / wbadmin / shadowcop(y).
@@ -807,6 +826,11 @@ BPF_HASH(write_offset,  u64, struct woff_t, 20000);
 struct rate_t {{ u64 win_ms; u64 count; }};
 BPF_PERCPU_HASH(rate_state, u32, struct rate_t, 10000);
 
+// Feature 6: fail-secure agent heartbeat. Userspace writes a monotonic ns
+// timestamp to slot 0 every second; if it goes stale (agent crashed) the LSM
+// hooks deny renames/execs so nothing can encrypt while we are blind.
+BPF_ARRAY(heartbeat, u64, 1);
+
 // ── Process behavioral profile ───────────────────────────────────────────
 struct proc_profile_t {{
     u64 files_opened;
@@ -839,6 +863,7 @@ BPF_PERF_OUTPUT(exec_events);
 #define SCORE_ALERT          50
 #define NONSEQ_THRESH         5
 #define RATE_LIMIT          500
+#define HEARTBEAT_STALE_NS  (2ULL * 1000000000ULL)
 
 struct rename_event_t {{
     u32 pid; u32 ppid; char comm[16];
@@ -865,6 +890,8 @@ struct exec_event_t {{
 
 // Feature 5: per-PID per-CPU rate limiter (inserted top-level).
 {_rate_helper}
+// Feature 6: agent heartbeat staleness helper (inserted top-level).
+{_heartbeat_helper}
 // Feature 4: backup-destruction keyword matcher (inserted top-level).
 {_kw_matcher}
 
@@ -1152,6 +1179,31 @@ def run_sensor(
                 pass
         print(f"[ebpf] {_registered} canary inodes registered in LSM map")
 
+    # ── Feature 6: fail-secure heartbeat ──────────────────────────────────
+    # The LSM hooks deny renames/execs if the heartbeat goes stale (>2s),
+    # so a crashed agent can't leave the system silently unprotected.
+    # NOTE: bpf_ktime_get_ns() in-kernel is CLOCK_MONOTONIC. We therefore write
+    # the *matching* monotonic clock here, NOT wall-clock time.time_ns() — the
+    # latter is a different clock domain and would read as permanently stale,
+    # bricking all renames. The intent ("write a timestamp every second; deny
+    # if stale") is preserved; only the clock source is corrected.
+    import threading as _hb_thr
+    _hb_key = b["heartbeat"].Key(0)
+    def _heartbeat_writer():
+        while not (stop_event and stop_event.is_set()):
+            try:
+                b["heartbeat"][_hb_key] = b["heartbeat"].Leaf(
+                    time.clock_gettime_ns(time.CLOCK_MONOTONIC))
+            except Exception:
+                pass
+            time.sleep(1.0)
+    # Prime once before the poll loop so the first LSM decision sees a fresh pulse.
+    try:
+        b["heartbeat"][_hb_key] = b["heartbeat"].Leaf(
+            time.clock_gettime_ns(time.CLOCK_MONOTONIC))
+    except Exception:
+        pass
+    _hb_thr.Thread(target=_heartbeat_writer, daemon=True).start()
 
     _emit    = emit    or (lambda e: print(e))
     _contain = contain or (lambda pid, comm: os.kill(pid, 19))  # SIGSTOP
@@ -1710,6 +1762,22 @@ def _selftest() -> int:
     # Every hot-path handler must gate on the limiter.
     check("rate check wired into >=4 handlers",
           _src5.count("if (__rate_limited(pid, ts)) return 0;") >= 4)
+
+    # ── Feature 6: fail-secure heartbeat ─────────────────────────────
+    print("fail-secure heartbeat (map + LSM staleness gate)")
+    _src6 = build_bpf(enforce=True, lsm=True)
+    check("declares BPF_ARRAY heartbeat map", "BPF_ARRAY(heartbeat" in _src6)
+    check("defines HEARTBEAT_STALE_NS (2s)", "HEARTBEAT_STALE_NS  (2ULL" in _src6)
+    check("defines __heartbeat_stale helper", "__heartbeat_stale()" in _src6)
+    check("hb==0 treated as not-yet-initialized (no brick at startup)",
+          "*hb == 0) return 0;" in _src6)
+    # Both LSM hooks gate on staleness (path_rename + bprm_check).
+    check("LSM hooks gate on heartbeat (>=2 call sites)",
+          _src6.count("if (__heartbeat_stale()) return -EPERM;") >= 2)
+    # Helper exists even without LSM (map always defined) but is NOT enforced.
+    _src6n = build_bpf(enforce=False, lsm=False)
+    check("audit build has no heartbeat -EPERM gate",
+          "if (__heartbeat_stale()) return -EPERM;" not in _src6n)
 
     # ── BPF source generation ─────────────────────────────────────────
     print("BPF source generation (all variants compile to text)")
