@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
@@ -19,8 +20,18 @@ logger = logging.getLogger(__name__)
 
 
 def _run_migrations() -> None:
-    """Run Alembic upgrade head (sync — called from asyncio.to_thread)."""
-    cfg = Config("alembic.ini")
+    """Run Alembic upgrade head (sync — called from asyncio.to_thread).
+
+    Resolve alembic.ini and script_location against the project root rather than
+    the process CWD. A bare ``Config("alembic.ini")`` is CWD-relative, so when
+    uvicorn is launched from anywhere other than the repo root alembic silently
+    reads an empty config and fails with "No 'script_location' key found".
+    """
+    project_root = Path(__file__).resolve().parents[1]
+    cfg = Config(str(project_root / "alembic.ini"))
+    # script_location in the .ini is itself CWD-relative; pin it absolute too.
+    cfg.set_main_option("script_location", str(project_root / "backend" / "migrations"))
+    cfg.set_main_option("prepend_sys_path", str(project_root))
     command.upgrade(cfg, "head")
 
 
