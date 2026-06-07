@@ -144,12 +144,6 @@ class EventResponse(BaseModel):
         from_attributes = True
 
 
-class AlertCreate(BaseModel):
-    event_id: uuid.UUID
-    host_id: str
-    severity: Severity
-
-
 class AlertResponse(BaseModel):
     id: uuid.UUID
     event_id: uuid.UUID
