@@ -45,3 +45,8 @@ aaa_*
 ZZZ_*
 zzz_*
 .coverage
+htmlcov/
+.pytest_cache/
+
+# Alembic
+__pycache__/

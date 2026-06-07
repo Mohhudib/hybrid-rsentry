@@ -20,6 +20,7 @@ python-multipart==0.0.32
 
 # Utilities
 python-dotenv==1.2.2
+alembic==1.16.1
 
 # AI Analysis
 openai>=1.30.0

@@ -1,26 +1,33 @@
 """
 main.py — FastAPI application entry point.
 """
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from backend.models.database import engine, Base
+from backend.models.database import engine
 from backend.routers import events, alerts, hosts, ws
 
 logger = logging.getLogger(__name__)
 
 
+def _run_migrations() -> None:
+    """Run Alembic upgrade head (sync — called from asyncio.to_thread)."""
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create all tables on startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables ensured.")
+    await asyncio.to_thread(_run_migrations)
+    logger.info("Database migrations applied.")
     yield
     await engine.dispose()
     logger.info("Database engine disposed.")
