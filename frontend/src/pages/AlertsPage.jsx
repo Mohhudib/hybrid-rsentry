@@ -98,11 +98,6 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
             </button>
           ))}
         </div>
-        <div style={{ height: 30, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '0 10px', borderRadius: 6, background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: 12, whiteSpace: 'nowrap' }}>
-          <i className="fa-regular fa-clock" style={{ color: 'var(--muted)', fontSize: 11 }} />
-          Last 24 hours
-          <i className="fa-solid fa-chevron-down" style={{ fontSize: 9 }} />
-        </div>
         <button onClick={handleRefresh}
           style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--accent)', border: 'none', color: '#fff', fontSize: 12, fontWeight: 500, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <i className={`fa-solid fa-rotate-right${spinning ? ' fa-spin' : ''}`} />
