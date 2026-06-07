@@ -26,6 +26,7 @@ Run modes:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import shutil
@@ -70,6 +71,22 @@ _BENIGN_SUFFIXES: Set[str] = {
     ".orig", ".old", ".backup",
 }
 
+# Minimum Shannon entropy (bits/char) for an extension to look machine-generated.
+# Real-world extensions are short, low-entropy mnemonics (.docx≈2.0, .pdf≈1.58,
+# .xlsx≈1.5); ransomware appends random strings (.x7k2p9qm≈3.0, 16-char≈4.0).
+_EXT_ENTROPY_THRESHOLD = 2.5
+
+
+def _shannon_entropy(s: str) -> float:
+    """Shannon entropy (bits per symbol) of a string. 0.0 for empty input."""
+    if not s:
+        return 0.0
+    counts: Dict[str, int] = {}
+    for ch in s:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
 
 # ---------------------------------------------------------------------------
 # Detection Engine
@@ -106,6 +123,11 @@ class DetectionEngine:
         # Velocity tracking: pid -> deque of timestamps
         self._velocity: Dict[int, deque] = defaultdict(
             lambda: deque(maxlen=200)
+        )
+        # Recent destination paths per pid — feeds _profile_family's ESXi
+        # heuristic (must be paths, not the velocity timestamp deque).
+        self._path_history: Dict[int, deque] = defaultdict(
+            lambda: deque(maxlen=10)
         )
         # PIDs armed after velocity burst (watch their writes too)
         self._active_pids: Set[int] = set()
@@ -192,11 +214,14 @@ class DetectionEngine:
             return False
         if suffix in _ENC_SUFFIXES:
             return True
-        # Random-looking extension: 8-16 alphanumeric chars, no vowels pattern
-        # bn unused — ext check sufficient
+        # Feature 2: entropy-based detection. Replaces the old fixed 8-16 char
+        # length filter — flag any alphanumeric extension whose Shannon entropy
+        # is high enough to look machine-generated, regardless of length.
+        # Normal extensions (.docx≈2.0, .pdf≈1.58) stay below the threshold.
         ext = Path(path).suffix.lstrip(".")
-        if 8 <= len(ext) <= 16 and re.match(r'^[a-zA-Z0-9]+$', ext):
-            return True
+        if ext and re.match(r'^[a-zA-Z0-9]+$', ext):
+            if _shannon_entropy(ext) >= _EXT_ENTROPY_THRESHOLD:
+                return True
         return False
 
     def _profile_family(self, path: str, pid_history: List[str]) -> str:
@@ -378,7 +403,13 @@ class DetectionEngine:
                 pass
 
         sev = self._severity(False, lineage_score, entropy_delta)
-        profile = self._profile_family(dst_path, list(self._velocity[pid]))
+        # Track recent destination *paths* (not velocity timestamps) so the
+        # ESXi heuristic in _profile_family sees real file paths. Passing the
+        # velocity deque here previously crashed on any non-16-char extension
+        # (Path() on a float timestamp) — masked only because old fixtures used
+        # exactly-16-char extensions that hit the early lockbit5 return.
+        self._path_history[pid].append(dst_path)
+        profile = self._profile_family(dst_path, list(self._path_history[pid]))
 
         extra = {
             "src": src_path,
@@ -1267,10 +1298,10 @@ def _selftest() -> int:
         eng4 = DetectionEngine("t", [td2], velocity_threshold=2,
                                window_seconds=5.0, self_pid=1)
         r1 = eng4.observe_rename(99, 1, "evil",
-             td2+"/a.doc", td2+"/a.aaaaaaaaaaaa1234", ts=1.0)
+             td2+"/a.doc", td2+"/a.q7w2e9r4t1y6", ts=1.0)
         check("no alert file 1", r1 is None)
         r2 = eng4.observe_rename(99, 1, "evil",
-             td2+"/b.doc", td2+"/b.bbbbbbbbbbbb5678", ts=1.5)
+             td2+"/b.doc", td2+"/b.z3x8c5v0b2n7", ts=1.5)
         check("alert on file 2", r2 is not None)
         check("burst schema valid", r2 is not None and "velocity" in r2["details"])
         check("PID attributed", r2 is not None and r2["pid"] == 99)
@@ -1330,9 +1361,9 @@ def _selftest() -> int:
         eng11 = DetectionEngine("t", [td3], velocity_threshold=2,
                                 window_seconds=5.0, self_pid=1)
         eng11.observe_rename(11, 1, "evil",
-            td3+"/a.doc", td3+"/a.aaaaaaaaaaaa1111", ts=0.001)
+            td3+"/a.doc", td3+"/a.q7w2e9r4t1y6", ts=0.001)
         r = eng11.observe_rename(11, 1, "evil",
-            td3+"/b.doc", td3+"/b.bbbbbbbbbbbb2222", ts=0.002)
+            td3+"/b.doc", td3+"/b.z3x8c5v0b2n7", ts=0.002)
         check("alert fires at ts~0", r is not None)
     finally:
         shutil.rmtree(td3, ignore_errors=True)
@@ -1345,9 +1376,9 @@ def _selftest() -> int:
         eng12 = DetectionEngine("t", [td4], velocity_threshold=2,
                                 window_seconds=5.0, self_pid=1)
         eng12.observe_rename(22, 1, "evil",
-            outside+"/x.doc", outside+"/x.aaaaaaaaaaaa1234", ts=1.0)
+            outside+"/x.doc", outside+"/x.q7w2e9r4t1y6", ts=1.0)
         r = eng12.observe_rename(22, 1, "evil",
-            outside+"/y.doc", outside+"/y.bbbbbbbbbbbb5678", ts=1.5)
+            outside+"/y.doc", outside+"/y.z3x8c5v0b2n7", ts=1.5)
         check("rename OUTSIDE watch dir still alerts", r is not None)
         check("out-of-scope flagged in details",
               r is not None and r["details"].get("outside_watch") is True)
@@ -1357,9 +1388,9 @@ def _selftest() -> int:
         eng13 = DetectionEngine("t", [td4], velocity_threshold=2,
                                 window_seconds=5.0, self_pid=1)
         eng13.observe_rename(33, 1, "evil",
-            td4+"/a.doc", td4+"/a.aaaaaaaaaaaa1234", ts=1.0)
+            td4+"/a.doc", td4+"/a.q7w2e9r4t1y6", ts=1.0)
         r2 = eng13.observe_rename(33, 1, "evil",
-            td4+"/b.doc", td4+"/b.bbbbbbbbbbbb5678", ts=1.5)
+            td4+"/b.doc", td4+"/b.z3x8c5v0b2n7", ts=1.5)
         check("in-scope hit NOT flagged outside_watch",
               r2 is not None and not r2["details"].get("outside_watch"))
         # benign outside watch dir still ignored
@@ -1410,6 +1441,27 @@ def _selftest() -> int:
         check("dry-run reports paths", len(dry) > 0)
     finally:
         shutil.rmtree(td5, ignore_errors=True)
+
+    # ── Feature 2: entropy-based ransomware-extension filter ──────────
+    print("entropy-based extension filter")
+    enge2 = DetectionEngine("t", ["/tmp"], self_pid=1)
+    check("normal .docx NOT flagged",  not enge2._looks_encrypted("/tmp/report.docx"))
+    check("normal .pdf NOT flagged",   not enge2._looks_encrypted("/tmp/report.pdf"))
+    check("normal .xlsx NOT flagged",  not enge2._looks_encrypted("/tmp/sheet.xlsx"))
+    check("normal .jpg NOT flagged",   not enge2._looks_encrypted("/tmp/pic.jpg"))
+    check("high-entropy 8-char ext flagged",  enge2._looks_encrypted("/tmp/x.x7k2p9qm"))
+    check("high-entropy 16-char ext flagged", enge2._looks_encrypted("/tmp/x.abcdefghijklmnop"))
+    check("short high-entropy ext flagged (length-independent, <old 8-char min)",
+          enge2._looks_encrypted("/tmp/x.q7w2e9"))
+    check("known .enc suffix still flagged", enge2._looks_encrypted("/tmp/x.enc"))
+    check("benign .bak never flagged",       not enge2._looks_encrypted("/tmp/x.bak"))
+    check("low-entropy repeated ext NOT flagged",
+          not enge2._looks_encrypted("/tmp/x.aaaaaaaaaaaa"))
+    check("_shannon_entropy empty -> 0.0", _shannon_entropy("") == 0.0)
+    check("_shannon_entropy docx < threshold",
+          _shannon_entropy("docx") < _EXT_ENTROPY_THRESHOLD)
+    check("_shannon_entropy 16-random >= threshold",
+          _shannon_entropy("abcdefghijklmnop") >= _EXT_ENTROPY_THRESHOLD)
 
     # ── Feature 1: write-offset silent-encryption detection ───────────
     print("write-offset silent-encryption detection")
