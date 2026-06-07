@@ -7,32 +7,47 @@ All notable changes to Hybrid R-Sentry are documented here.
 ## [2.1.0] — 2026-06-07
 
 ### Added
-- **GitHub Projects board** — "R-Sentry Roadmap" project with Backlog / In Progress / Review / Done columns; all open issues (#51–#55) linked
-- **Milestones** — v2.1.0 (CI, Docs & Security, due 2026-06-15) and v2.2.0 (Feature Completeness, due 2026-07-31) created; issues assigned to milestones
+- **GitHub Milestones** — v2.1.0 (CI, Docs & Security, due 2026-06-15) and v2.2.0 (Feature Completeness, due 2026-07-31) created; all 5 open issues assigned to milestones
+- **Ransomware detection benchmark** — `bench/` suite measuring detection latency and accuracy for Akira, Qilin, and LockBit 5.0 under realistic conditions
+- **Fail-secure agent heartbeat** — agent now sends periodic heartbeat to backend; backend raises alert if heartbeat goes missing (prevents silent agent crash from going undetected)
+- **Backend coverage tests** — `tests/unit/backend/` covers routers (`events`, `alerts`, `hosts`), `ai_analyst.py`, and Celery tasks; containment pipeline tests added
 
-### Changed
-- **eBPF Phase 3 — full 5-syscall behavioral detection system:**
-  - `openat`, `vfs_write`, `unlink`, `rename`, `execve` all covered via kprobe/tracepoint
-  - `proc_profile` BPF map: 10 000-entry per-process behavioral profile with `score` (0–100) and `alerted` flag
-  - Behavioral scoring: +35 rapid unlink+write, +25 rename velocity ≥3, +15 total_ops>15 && deleted>3, +15 write/read symmetry, +10 child spawning + file ops
-  - `BPF LSM` canary blocking: `canary_inodes` map + `LSM_PROBE(path_rename)` returns `-EPERM` in nanoseconds (requires `lsm=bpf` kernel boot param)
-  - `blocked_pids` BPF map: velocity burst blocks all subsequent renames by the offending PID at kernel level
-  - Ransomware family profiling: LockBit 5.0 (16-char extension, two-pass), Akira (`.akiracrypt`, intermittent), ESXi-targeting (`.vmdk`/`.vmx`/`.vmem`)
-  - Entropy verification on behavior events: entropy ≥ 6.5 → BLOCK + SIGSTOP; < 6.5 → ALERT only (prevents false positives)
-  - `perf_buffer` optimized: `page_cnt` 2048 → 8192, timeout 1 ms → 0 (near-zero latency)
-  - Interval-based rename blocking with per-file encrypted flag
-- **4-prefix canary system** — `AAA_`, `aaa_`, `ZZZ_`, `zzz_` naming prefixes give 4× surface area vs. single-prefix approach; all 4 variants excluded from `.gitignore`
-- **Markov repositioner disabled in eBPF mode** — eBPF `proc_profile` map tracks access patterns directly; Markov is only active in inotify backend
+### eBPF Hardening (6 improvements)
+1. **Write-offset tracking + SILENT_ENCRYPTION detection** — in-place file rewrites (same inode, write at offset 0) now detected as silent encryption; PID frozen immediately
+2. **Entropy-based ransomware-extension filter** — extension-rename detection now requires actual high entropy (≥ 6.5 bits) to confirm encryption rather than trusting the extension alone; reduces false positives on legitimate file conversions
+3. **Realistic canary content + backdated mtimes** — canary files now contain syntactically valid document fragments (header + Lorem Ipsum body) and have mtimes backdated by 30–365 days; hardened against file-skipping ransomware that reads content or mtime before encrypting
+4. **Block backup-destruction tooling at execve** — `vssadmin`, `wbadmin`, `bcdedit`, `cipher.exe`, `sdelete`, and `wmic shadowcopy` are blocked at the BPF `execve` hook; attempts → CRITICAL + containment
+5. **Per-PID per-CPU rate limiting** — BPF rate limiting prevents a high-frequency process from flooding the perf ring buffer; excess events are dropped rather than queuing up and delaying detection of concurrent threats
+6. **Full 5-syscall behavioral detection system** — `proc_profile` BPF map accumulates per-process counters across `openat`, `vfs_write`, `unlink`, `rename`, `execve`; behavioral scoring fires when score ≥ threshold; `BPF LSM` blocks canary renames with `-EPERM` in nanoseconds; `blocked_pids` BPF map prevents subsequent renames by the offending PID; ransomware family profiling (LockBit 5.0, Akira, ESXi)
+
+### Fixed (major)
+- **Canary content** — 4 naming prefixes (`AAA_`, `aaa_`, `ZZZ_`, `zzz_`) all covered in `.gitignore`; `is_canary()` updated to check all 4 prefixes
+- **Rapid-exit lineage score** — lowered from 40 to 25 to reduce false positives from short-lived benign processes (package managers, shell scripts)
+- **IGNORE_COMMS** — fixed `containerd` deduplication and `glean.dispatche` truncation (BPF `comm` field is 15 chars max)
+- **SHA-256 binary cache** — replaced `lru_cache` with mtime-aware cache so binary swaps (e.g. malware replacing a legitimate process) are detected instead of returning a stale MATCH verdict
+- **`EntropyEngine._records`** — changed from plain `dict` (FIFO-only eviction) to `OrderedDict` with true LRU eviction; prevents stale entries from accumulating under the 5 000-entry cap
+- **Postgres + Redis** — bound to `127.0.0.1` only (`docker-compose.yml`); prevents accidental exposure on multi-interface hosts
+- **Evidence directory** — created with `mode=0o700` (was world-readable); evidence from containment is now accessible only to root
+- **POSTGRES_PASSWORD** — removed insecure fallback default; `POSTGRES_PASSWORD` is now required in `.env` (like `DATABASE_URL`)
+- **`/api/with-events`** — severity/event_type enums serialized via `.value`; was crashing JSON serialization on some Python versions
+- **Stale forensic export Redis.get()** — moved sync Redis call off the event loop using `asyncio.to_thread`
+- **Frontend** — removed 3 dead components (Sidebar, ForensicExport, AIAnalystPanel); fixed D3 cleanup memory leaks (zoom handler detach, tooltip mounted guard); fixed stale WebSocket URL (now derived from `window.location`); fixed TopBar alert badge counting
+- **Removed `.enc` from WHITELISTED_EXTENSIONS** — canonical ransomware extension was incorrectly suppressed
+- **`_validate_watch_path()`** — added `.exists()` check; `set_sim()` path validation added
+- **SQLAlchemy** — replaced deprecated `lazy='dynamic'` with `lazy='write_only'` (2.x compatibility); reduced pool_size to 5/max_overflow 10 for single-host deployment
+- **Celery bumped 5.4.0 → 5.6.3**, starlette bumped 1.0.0 → 1.2.1 (security)
 
 ### CI & Code Quality
 - **GitHub Actions CI workflow** — backend lint (ruff), Docker build, landing page deploy; Dependabot auto-merge configuration added
 - **Ruff linting** — narrowed to F-series; all 25 F401/F841 violations fixed across `agent/` and `backend/`
 - **Coverage gate** — 75% minimum coverage enforced in CI for `entropy.py`, `lineage.py`, `adaptive.py`
 - **Pinned action versions** — all GitHub Actions workflows use exact commit SHA pins (supply chain security hardening)
+- **Pytest consolidation** — pytest config moved to `pyproject.toml`; `pytest.ini` removed; `test_lockbit.py` converted to pytest format; `monitor_ebpf`/`monitor` selftests integrated into CI
 
 ### Documentation
-- README and `docs/CODE_WALKTHROUGH.md` updated for 5-syscall eBPF, BPF LSM, and 4-prefix canary system
-- All 11 wiki pages refreshed (Installation, Detection Engine, Architecture, Roadmap, Known Issues)
+- README badges updated (coverage 89%, version v2.1.0), Roadmap & Issue Tracking section added
+- `docs/CODE_WALKTHROUGH.md` — added `simulations/` and `tests/` sections; expanded eBPF Phase 3 documentation
+- All 11 wiki pages refreshed (Home, Installation, Detection Engine, Architecture, Roadmap)
 
 ---
 
