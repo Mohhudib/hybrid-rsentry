@@ -40,9 +40,13 @@ from typing import Callable, Dict, List, Optional, Set
 # IGNORE_COMMS — never alert or contain these process names
 # ---------------------------------------------------------------------------
 IGNORE_COMMS: Set[str] = {
-    "Xorg", "gnome-shell", "nautilus", "systemd", "systemd-journal", "systemd-resolve", "systemd-network", "dockerd", "containerd",
+    "Xorg", "gnome-shell", "nautilus", "systemd", "systemd-journal", "systemd-resolve", "systemd-network",
     "redis-server", "postgres", "celery", "uvicorn",
-    "git", "cargo", "rsync", "make", "gcc", "cc1", "ld", "NetworkManager", "nm-dispatcher", "StreamTrans", "runc", "glean.dispatche", "containerd-shim", "x-www-browser", "firefox", "firefox-esr", "chrome", "chromium", "dpkg", "apt", "apt-get", "Cache2 I/O", "containerd", "dockerd", "docker",
+    "git", "cargo", "rsync", "make", "gcc", "cc1", "ld", "NetworkManager", "nm-dispatcher", "StreamTrans",
+    "runc", "containerd", "containerd-shi", "dockerd", "docker",
+    "x-www-browser", "firefox", "firefox-esr", "chrome", "chromium",
+    "dpkg", "apt", "apt-get",
+    "Cache2 I/O", "glean.dispatch",  # BPF comm is 15 chars; "glean.dispatche" was truncated
 }
 
 # Extensions that look like encryption output
