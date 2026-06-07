@@ -60,10 +60,11 @@ class TestEntropyEngine:
         assert EntropyEngine().observe(str(f)) is None
     def test_spike_returns_alert(self, tmp_path):
         f = tmp_path / "t.bin"; e = EntropyEngine()
-        f.write_bytes(b"\x00"*1000); e.observe(str(f))
-        f.write_bytes(os.urandom(1000))
+        f.write_bytes(b"\x00"*1000); e.observe(str(f))   # baseline ~0 bits, no spike
+        f.write_bytes(os.urandom(1000))                   # ~8 bits → delta well over 3.5
         r = e.observe(str(f))
-        if r: assert r["event_type"] == "ENTROPY_SPIKE"
+        assert r is not None, "zeros→random rewrite must produce an ENTROPY_SPIKE"
+        assert r["event_type"] == "ENTROPY_SPIKE"
     def test_flush_removes_record(self, tmp_path):
         f = tmp_path / "t.txt"; f.write_bytes(b"data")
         e = EntropyEngine(); e.observe(str(f))
