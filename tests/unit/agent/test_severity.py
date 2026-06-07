@@ -71,4 +71,4 @@ class TestCanarySeverity:
         g.canary_paths = []
         assert not g.is_canary("/watched/report.docx")
         assert not g.is_canary("/watched/important_file.txt")
-        assert not g.is_canary("/watched/aaa_lookalike")  # no trailing _ variant
+        assert not g.is_canary("/watched/aaaaaa_file.txt")  # extra 'a's — not a valid prefix
