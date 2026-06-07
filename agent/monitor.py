@@ -86,6 +86,11 @@ TARGETED_EXTENSIONS = {
 def _validate_watch_path(watch_path: str) -> None:
     import pathlib
     resolved = pathlib.Path(watch_path).resolve()
+    if not resolved.exists():
+        logger.critical(
+            "WATCH_PATH=%s does not exist — create the directory and restart.", watch_path
+        )
+        sys.exit(1)
     check = resolved
     for _ in range(10):
         if (check / ".git").is_dir():
@@ -547,9 +552,18 @@ class Monitor:
         """Wire a simulation to run inside the eBPF sensor loop."""
         import importlib.util as _ilu
         import sys as _sys
-        _sys.path.insert(0, '/home/kali/hybrid-rsentry')
-        _sys.path.insert(0, '/home/kali/hybrid-rsentry/simulations')
-        _spec = _ilu.spec_from_file_location("_sim", sim_path)
+        import pathlib as _pl
+        _proj = _pl.Path('/home/kali/hybrid-rsentry').resolve()
+        _sim_abs = _pl.Path(sim_path).resolve()
+        if not _sim_abs.exists():
+            raise ValueError(f"--run-sim path {sim_path!r} does not exist")
+        if not str(_sim_abs).startswith(str(_proj)):
+            raise ValueError(
+                f"--run-sim path {sim_path!r} must be inside {_proj}"
+            )
+        _sys.path.insert(0, str(_proj))
+        _sys.path.insert(0, str(_proj / 'simulations'))
+        _spec = _ilu.spec_from_file_location("_sim", _sim_abs)
         _mod  = _ilu.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
         from simulations.sim_common import enumerate_targets, _prioritise
