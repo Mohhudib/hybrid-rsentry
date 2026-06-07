@@ -1,22 +1,5 @@
 import React, { useState } from 'react';
-
-const RULE_NAME = {
-  CANARY_TOUCHED:        'Canary File Modified by Untrusted Process',
-  ENTROPY_SPIKE:         'High-Entropy File Writes (Encryption Behavior)',
-  PROCESS_ANOMALY:       'Suspicious Process Lineage Detected',
-  COMBINED_ALERT:        'Multi-Vector Ransomware Behavior',
-  CONTAINMENT_TRIGGERED: 'Host Isolation Initiated',
-  CONTAINMENT_COMPLETE:  'Containment Verified',
-  HEARTBEAT:             'System Heartbeat',
-};
-
-const MITRE = {
-  CANARY_TOUCHED:        { id: 'T1485', tac: 'Impact' },
-  ENTROPY_SPIKE:         { id: 'T1486', tac: 'Impact' },
-  PROCESS_ANOMALY:       { id: 'T1059', tac: 'Execution' },
-  COMBINED_ALERT:        { id: 'T1486', tac: 'Impact' },
-  CONTAINMENT_TRIGGERED: { id: 'T1486', tac: 'Impact' },
-};
+import { RULE_NAME, MITRE } from '../constants/eventTypes';
 
 const SEV_COLOR  = { CRITICAL: 'var(--crit)', HIGH: 'var(--high)', MEDIUM: 'var(--med)', LOW: 'var(--low)' };
 const SEV_BG     = { CRITICAL: 'var(--crit-bg)', HIGH: 'var(--high-bg)', MEDIUM: 'var(--med-bg)', LOW: 'var(--low-bg)' };
