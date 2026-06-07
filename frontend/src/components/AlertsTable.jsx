@@ -83,9 +83,6 @@ export default function AlertsTable({ alerts, selectedId, onSelect, page, setPag
       <div style={{ height: 38, display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>Alerts</span>
         <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)' }}>{alerts.length} hits</span>
-        <span style={{ flex: 1 }} />
-        <button className="siem-tbl-btn"><i className="fa-solid fa-table-columns" style={{ fontSize: 10, color: 'var(--muted)' }} /> Columns</button>
-        <button className="siem-tbl-btn"><i className="fa-solid fa-arrow-down-wide-short" style={{ fontSize: 10, color: 'var(--muted)' }} /> Sort</button>
       </div>
 
       {/* Table */}
