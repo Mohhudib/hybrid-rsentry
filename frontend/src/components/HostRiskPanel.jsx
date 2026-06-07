@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getHosts, getHostRisk } from '../api/client';
 import { RadialBarChart, RadialBar, ResponsiveContainer } from 'recharts';
 
@@ -21,7 +21,7 @@ export default function HostRiskPanel() {
   const [riskMap, setRiskMap] = useState({});
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const { data: hostList } = await getHosts({ limit: 20 });
       setHosts(hostList);
@@ -40,13 +40,13 @@ export default function HostRiskPanel() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAll]);
 
   if (loading) {
     return (

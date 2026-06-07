@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { getEvents } from '../api/client';
 import EventDetailModal from './EventDetailModal';
@@ -112,18 +112,18 @@ export default function TacticalResponseLog({ liveEvent }) {
   const [filter,        setFilter]        = useState('ALL');
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       const { data } = await getEvents({ limit: 100 });
       setEvents(data);
     } catch (err) { console.error(err); }
-  };
+  }, []);
 
   useEffect(() => {
     fetchEvents();
     const t = setInterval(fetchEvents, 10000);
     return () => clearInterval(t);
-  }, []);
+  }, [fetchEvents]);
 
   // Inject live WS event instantly
   useEffect(() => {

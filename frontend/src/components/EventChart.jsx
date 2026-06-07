@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getEvents } from '../api/client';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
@@ -39,20 +39,20 @@ function bucketsLastN(events, minutes = 30) {
 export default function EventChart() {
   const [data, setData] = useState([]);
 
-  const fetchAndBucket = async () => {
+  const fetchAndBucket = useCallback(async () => {
     try {
       const { data: events } = await getEvents({ limit: 500 });
       setData(bucketsLastN(events, 30));
     } catch (err) {
       console.error('EventChart error:', err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAndBucket();
     const interval = setInterval(fetchAndBucket, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchAndBucket]);
 
   return (
     <div className="bg-gray-900 rounded-xl p-4">

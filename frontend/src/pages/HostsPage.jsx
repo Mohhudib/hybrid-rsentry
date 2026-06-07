@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getHosts, getHostRisk, containHost, releaseHost } from '../api/client';
 import { RadialBarChart, RadialBar, ResponsiveContainer } from 'recharts';
 
@@ -21,7 +21,7 @@ export default function HostsPage() {
   const [riskMap, setRiskMap] = useState({});
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const { data: hostList } = await getHosts({ limit: 50 });
       setHosts(hostList);
@@ -33,13 +33,13 @@ export default function HostsPage() {
       setRiskMap(map);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAll();
     const t = setInterval(fetchAll, 15000);
     return () => clearInterval(t);
-  }, []);
+  }, [fetchAll]);
 
   const handleContain = async (hostId, isContained) => {
     try {
