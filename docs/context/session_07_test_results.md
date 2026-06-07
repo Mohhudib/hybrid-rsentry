@@ -275,3 +275,44 @@ test_lockbit:           4/4 targets met 1.044s
 ------------------------------------------------
 combined:              151/151 green
 ```
+
+---
+
+## Addendum — Resolution (same session)
+
+All findings above were fixed in priority order; each is a separate commit.
+The canonical test runner is now the project **venv (Python 3.11.9)**, which
+runs the entire suite after the P0 fix.
+
+| ID | Fix | Commit |
+|---|---|---|
+| **P0** | `build_bpf` f-string made 3.11-safe — conditional snippets hoisted to locals; generated BPF text verified byte-identical across all enforce×lsm variants. Suite now runs under both 3.11.9 and 3.13.12. | `de88c0e` |
+| **P1a** | 59 backend tests: routers (alerts/events/hosts via httpx ASGI + in-memory SQLite), ai_analyst (mocked), tasks (`_env`/`_run`/WS push), main (health + 200-item cap). SQLite UUID shim is conftest-only; Celery `.delay` auto-patched. | `81b6aaa` |
+| **P1b** | 26 containment tests — full SIGSTOP→evidence→iptables→SIGKILL pipeline with all syscalls mocked (incl. TOCTOU UID read, uid=0 skip, 0o700 evidence dir, two-sweep freeze). | `035c41c` |
+| **P2a** | Both `--selftest` harnesses (~60 checks) wrapped as pytest tests so CI runs them. | `9b7b02d` |
+| **P2b** | `test_lockbit.py` converted from argparse script to 8 pytest tests gating the 4 metrics; stable across 10 runs. CLI `main()` retained. | `0231d59` |
+| **P3a** | 4 conditional assertions (`if r: assert …`) made unconditional via guaranteed-spike helper. | `f2249cc` |
+| **P3b** | Dropped `pytest.ini`; `pyproject.toml` is the single config source (+ `asyncio_mode = strict`). No more "ignoring pyproject" warning. | `b37d858` |
+
+### New totals
+
+```
+pytest:   182 passed in ~8s   (venv python3 3.11.9, pytest 9.0.3)
+          = 96 agent + 59 backend + 19 sims + 8 lockbit
+          (the 60 monitor/eBPF selftest checks now run inside pytest)
+coverage: 54% overall (agent+backend) — was ~0% on backend
+          containment.py 79% · ai_analyst 50% · routers 32–49% · tasks 44%
+```
+
+### Tooling installed into the venv (also pinned in `requirements-dev.txt`)
+`pytest-asyncio==1.4.0`, `pytest-mock==3.15.1`, `pytest-cov==7.1.0`,
+`freezegun==1.5.5`, `aiosqlite==0.22.1`.
+
+### Not yet addressed (lower priority, from §6)
+- `tests/integration/` still empty; the `integration` marker is registered but
+  unused (no Redis/Postgres round-trip test yet).
+- Frontend/landing still have no test runner (Vitest).
+- `agent/graph.py`, `client.py`, `exceptions.py` still lack dedicated unit tests
+  (partially exercised via the monitor selftest).
+- Router coverage is concentrated on decision logic; `with-events`,
+  `forensic-export`, `analyze`, and evidence endpoints remain untested.
