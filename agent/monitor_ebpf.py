@@ -1054,7 +1054,7 @@ def run_sensor(
 
     try:
         while True:
-            b.perf_buffer_poll(timeout=100)
+            b.perf_buffer_poll(timeout=1)
             if stop_event and stop_event.is_set():
                 break
     except KeyboardInterrupt:
