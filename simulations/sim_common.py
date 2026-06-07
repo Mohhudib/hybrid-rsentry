@@ -4,15 +4,16 @@ sim_common.py — shared simulation engine for Hybrid R-Sentry behavioural sims.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import random
 import shutil
 import string
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -330,3 +331,261 @@ def main_for(profile: Profile, ap: argparse.ArgumentParser) -> int:
     print(f"[{profile.name}] done | encrypted={s['encrypted']} "
           f"errors={s['errors']} elapsed={s['elapsed_s']}s")
     return 0
+
+
+# ===========================================================================
+# Session 09 — sandbox-guarded defense validation harness
+# ---------------------------------------------------------------------------
+# The legacy run_attack() path (above) drives the *running* eBPF sensor by
+# manipulating files on disk. The validation harness below is for environments
+# without root/BCC: each family performs the SAME safe, non-destructive file
+# operations inside a sentinel-guarded sandbox AND feeds the equivalent events
+# into the userspace DetectionEngine (the unit-testable "source of truth" per
+# session_08), so we can assert the matching defense fires without loading any
+# kernel program.
+#
+# Safety invariants enforced here, not left to the caller:
+#   * The directory must carry a .rsentry_sandbox sentinel — we refuse to touch
+#     any directory that is not an R-Sentry sandbox.
+#   * Every path operated on is asserted (via realpath) to live inside the
+#     sandbox; an out-of-sandbox path raises SandboxViolation and aborts.
+#   * The whole tree is hashed + backed up before the run and restored after,
+#     then a byte-for-byte integrity audit confirms zero real files were harmed.
+# ===========================================================================
+
+SANDBOX_SENTINEL = ".rsentry_sandbox"
+
+# A synthetic attacker PID used when feeding the DetectionEngine. It must differ
+# from the engine's self_pid (we pass os.getpid() as self_pid) so the sim is not
+# mistaken for the monitor itself and suppressed.
+ATTACKER_PID = 0xA77AC      # 686508
+ATTACKER_PPID = 0xA77AB     # 686507
+
+
+class SandboxViolation(RuntimeError):
+    """Raised when an operation targets a path outside the sandbox."""
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class Sandbox:
+    """Guarded scratch directory for safe ransomware-behaviour simulation.
+
+    Usage::
+
+        with Sandbox("/tmp/rsentry_sandbox") as sb:
+            sb.arm()                     # snapshot + backup before any mutation
+            p = sb.assert_inside(target) # raises if target escapes the sandbox
+            ...                          # safe, non-destructive operations
+        # on exit: corpus restored from backup + integrity audited
+
+    The context manager creates the directory (if absent), writes the
+    .rsentry_sandbox sentinel, and populates a synthetic corpus. It refuses to
+    adopt a pre-existing non-empty directory that lacks the sentinel, so it can
+    never be pointed at real user data by accident.
+    """
+
+    def __init__(self, root: str, files: int = 24):
+        self.root = Path(root)
+        self.root_real = ""               # set in __enter__
+        self._n_files = files
+        self._armed = False
+        self._backup = ""                 # tempdir holding the pristine copy
+        self._baseline: Dict[str, str] = {}   # relpath -> sha256 snapshot
+        self.corpus: List[Path] = []
+
+    # -- lifecycle ------------------------------------------------------
+    def __enter__(self) -> "Sandbox":
+        sentinel = self.root / SANDBOX_SENTINEL
+        if self.root.exists():
+            non_hidden = [p for p in self.root.iterdir()
+                          if not p.name.startswith(".")]
+            if non_hidden and not sentinel.exists():
+                raise SandboxViolation(
+                    f"{self.root} is non-empty and has no {SANDBOX_SENTINEL} "
+                    "sentinel — refusing to use it as a sandbox."
+                )
+        self.root.mkdir(parents=True, exist_ok=True)
+        # Refuse to operate inside a git repo (canaries/renames corrupt refs).
+        check = self.root.resolve()
+        for _ in range(12):
+            if (check / ".git").is_dir():
+                raise SandboxViolation(
+                    f"{self.root} is inside a git repo ({check}) — aborting."
+                )
+            if check.parent == check:
+                break
+            check = check.parent
+        sentinel.write_text(
+            f"R-Sentry simulation sandbox\npid={os.getpid()}\n"
+            f"created={time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        )
+        self.root_real = os.path.realpath(self.root)
+        self._populate()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        try:
+            if self._armed:
+                self._restore()
+                self.audit()
+        finally:
+            if self._backup and os.path.isdir(self._backup):
+                shutil.rmtree(self._backup, ignore_errors=True)
+        return False  # never swallow exceptions
+
+    # -- setup ----------------------------------------------------------
+    def _populate(self) -> None:
+        """Create fresh synthetic corpus files (only if the sandbox is empty of
+        corpus). Each file gets non-trivial size so entropy/offset writes are
+        meaningful. These are throwaway generated files — never real data."""
+        existing = [p for p in self.root.rglob("*")
+                    if p.is_file() and p.name != SANDBOX_SENTINEL]
+        if existing:
+            self.corpus = sorted(existing)
+            return
+        sub = self.root / "documents"
+        sub.mkdir(exist_ok=True)
+        exts = [".docx", ".xlsx", ".pdf", ".db", ".jpg", ".vmdk"]
+        created = []
+        for i in range(self._n_files):
+            ext = exts[i % len(exts)]
+            f = sub / f"corpus_{i:03d}{ext}"
+            # Low-entropy, compressible body so a later high-entropy in-place
+            # rewrite is a clear entropy *jump* (mirrors a real document).
+            f.write_bytes((f"document-{i} ".encode() * 4096)[:32768])
+            created.append(f)
+        self.corpus = sorted(created)
+
+    def arm(self) -> None:
+        """Snapshot (sha256) every file under root and back the tree up. Must be
+        called after all setup (incl. canary placement) and before any mutation;
+        restore + integrity audit on exit depend on it."""
+        if self._armed:
+            return
+        self._baseline = {
+            os.path.relpath(p, self.root): _sha256(p)
+            for p in self.root.rglob("*") if p.is_file()
+        }
+        self._backup = tempfile.mkdtemp(prefix="rsentry_sandbox_bk_")
+        dest = os.path.join(self._backup, "tree")
+        shutil.copytree(self.root, dest)
+        self._armed = True
+
+    # -- guards ---------------------------------------------------------
+    def assert_inside(self, path) -> Path:
+        """Resolve path and assert it lives inside the sandbox. Returns the Path.
+        Raises SandboxViolation otherwise — the hard guard required for every
+        file operation in every simulation step."""
+        rp = os.path.realpath(path)
+        if rp != self.root_real and not rp.startswith(self.root_real + os.sep):
+            raise SandboxViolation(
+                f"path {path!r} (-> {rp}) is OUTSIDE sandbox {self.root_real}"
+            )
+        return Path(path)
+
+    def corpus_files(self) -> List[Path]:
+        """Current non-canary, non-sentinel corpus files under the sandbox."""
+        out = []
+        for p in sorted(self.root.rglob("*")):
+            if not p.is_file():
+                continue
+            if p.name == SANDBOX_SENTINEL:
+                continue
+            if p.name.startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
+                continue
+            out.append(self.assert_inside(p))
+        return out
+
+    # -- teardown -------------------------------------------------------
+    def _restore(self) -> None:
+        src = os.path.join(self._backup, "tree")
+        if not os.path.isdir(src) or not os.listdir(src):
+            raise SandboxViolation(
+                f"backup at {src!r} is empty/missing — refusing to wipe {self.root}"
+            )
+        # Only ever remove our own (sentinel-bearing) sandbox.
+        self.assert_inside(self.root)
+        shutil.rmtree(self.root)
+        shutil.copytree(src, self.root)
+
+    def audit(self) -> int:
+        """Re-hash every baseline file after restore and confirm it matches.
+        Returns the number of harmed files (0 == success). Raises if anything
+        differs, so a botched restore can never pass silently."""
+        harmed = 0
+        for rel, digest in self._baseline.items():
+            p = self.root / rel
+            if not p.is_file() or _sha256(p) != digest:
+                harmed += 1
+        if harmed:
+            raise SandboxViolation(
+                f"integrity audit FAILED: {harmed} file(s) not byte-for-byte "
+                f"restored under {self.root}"
+            )
+        return harmed
+
+
+# ---------------------------------------------------------------------------
+# DetectionEngine validation helpers
+# ---------------------------------------------------------------------------
+
+def file_entropy(path: str) -> float:
+    """Shannon entropy (bits/byte) of a file's first 64 KB — used as the
+    engine's entropy_fn so emitted events carry a realistic entropy_delta."""
+    try:
+        data = Path(path).read_bytes()[:65536]
+    except OSError:
+        return 0.0
+    if not data:
+        return 0.0
+    from math import log2
+    counts = [0] * 256
+    for b in data:
+        counts[b] += 1
+    n = len(data)
+    return -sum((c / n) * log2(c / n) for c in counts if c)
+
+
+def build_validation_engine(sandbox_root: str,
+                            canary_paths: Optional[List[str]] = None):
+    """Construct a DetectionEngine wired to the sandbox for offline validation.
+    self_pid is this process so the synthetic ATTACKER_PID is never suppressed
+    as 'the monitor itself'."""
+    from agent.monitor_ebpf import DetectionEngine
+    return DetectionEngine(
+        host_id="SIM09",
+        watch_dirs=[os.path.realpath(sandbox_root)],
+        canary_paths=canary_paths or [],
+        velocity_threshold=2,
+        self_pid=os.getpid(),
+        entropy_fn=file_entropy,
+    )
+
+
+@dataclass
+class DefenseResult:
+    family: str
+    defense: str
+    signal: str
+    fired: bool
+    files_harmed: int
+    detail: Dict[str, object] = field(default_factory=dict)
+
+    def banner(self) -> str:
+        status = "TRIGGERED" if self.fired else "NOT DETECTED"
+        mark = "✓" if self.fired and self.files_harmed == 0 else "✗"
+        lines = [
+            f"[{self.family}] {mark} defense={self.defense} "
+            f"signal={self.signal} -> {status}",
+            f"[{self.family}]   files_harmed={self.files_harmed}",
+        ]
+        for k, v in self.detail.items():
+            lines.append(f"[{self.family}]   {k}={v}")
+        return "\n".join(lines)
