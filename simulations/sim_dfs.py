@@ -30,7 +30,7 @@ def _sim_dfs(root: Path, delay: float, max_files: int, dry_run: bool):
             fp = Path(dirpath) / fname
 
             # Skip canary files — they will trigger alerts naturally
-            if fname.startswith("AAA_"):
+            if fname.startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
                 print(f"[sim_dfs]   CANARY HIT: {fp}")
                 if not dry_run:
                     fp.write_bytes(_high_entropy_bytes(512))
@@ -71,7 +71,17 @@ def main():
                         help="Don't actually write files, just print what would happen")
     args = parser.parse_args()
 
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+    check = root
+    for _ in range(10):
+        if (check / ".git").is_dir():
+            print(f"[sim_dfs] ERROR: target {root} is inside a git repo — aborting")
+            return 1
+        parent = check.parent
+        if parent == check:
+            break
+        check = parent
+
     if not root.exists():
         print(f"[sim_dfs] Creating test directory: {root}")
         root.mkdir(parents=True)
@@ -83,6 +93,7 @@ def main():
                 (subdir / f"document_{j}.txt").write_text(f"Sample document {i}-{j}\n")
 
     _sim_dfs(root, args.delay, args.max_files, args.dry_run)
+    return 0
 
 
 if __name__ == "__main__":

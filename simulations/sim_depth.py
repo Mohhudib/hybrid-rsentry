@@ -33,7 +33,7 @@ def _sim_depth(root: Path, delay: float, max_files: int, dry_run: bool):
     print(f"[sim_depth] Starting depth-first simulation | {len(entries)} files")
 
     for depth, fp in entries:
-        if fp.name.startswith("AAA_"):
+        if fp.name.startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
             print(f"[sim_depth]   CANARY HIT (depth={depth}): {fp}")
             if not dry_run:
                 fp.write_bytes(_high_entropy_bytes(512))
@@ -65,7 +65,17 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    root = Path(args.root)
+    root = Path(args.root).resolve()
+    check = root
+    for _ in range(10):
+        if (check / ".git").is_dir():
+            print(f"[sim_depth] ERROR: target {root} is inside a git repo — aborting")
+            return 1
+        parent = check.parent
+        if parent == check:
+            break
+        check = parent
+
     if not root.exists():
         root.mkdir(parents=True)
         # Create deep nested structure for depth testing
@@ -77,6 +87,7 @@ def main():
                 (current / f"file_{j}.txt").write_text(f"Depth {i} file {j}\n")
 
     _sim_depth(root, args.delay, args.max_files, args.dry_run)
+    return 0
 
 
 if __name__ == "__main__":
