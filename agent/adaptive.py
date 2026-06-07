@@ -22,6 +22,16 @@ _UNSAFE_PREFIXES = (
     "/sys/",
     "/dev/",
     "/run/",
+    "/boot/",
+    "/etc/",
+    "/root/",
+    "/usr/",
+    "/lib/",
+    "/lib64/",
+    "/bin/",
+    "/sbin/",
+    "/snap/",
+    "/var/",
 )
 
 
