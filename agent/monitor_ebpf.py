@@ -532,6 +532,38 @@ def build_bpf(enforce: bool = True, lsm: bool = False) -> str:
     - LSM hook:           kernel-space blocking
     - Process profile:    multi-signal behavioral scoring
     """
+    # Conditional kernel-block snippets are hoisted into locals so the f-string
+    # expression parts contain no backslashes (required for Python 3.11 compat —
+    # PEP 701 backslash-in-f-string only lands in 3.12+).
+    _block_on_velocity = (
+        "u8 one = 1;\n    if (new_cnt >= VELOCITY_THRESHOLD) "
+        "{ blocked_pids.update(&pid, &one); }"
+    ) if (enforce and lsm) else ""
+    _block_on_rename_score = (
+        "u8 blk = 1; if (p->score >= 85) { blocked_pids.update(&pid, &blk); }"
+    ) if (enforce and lsm) else ""
+    _block_on_write_score = (
+        "u8 blk = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &blk); }"
+    ) if (enforce and lsm) else ""
+    _lsm_hook = "" if not (enforce and lsm) else """
+LSM_PROBE(path_rename,
+          const struct path *old_dir, struct dentry *old_dentry,
+          const struct path *new_dir, struct dentry *new_dentry) {
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u8 *blocked = blocked_pids.lookup(&pid);
+    if (blocked && *blocked) return -EPERM;
+    if (old_dentry && old_dentry->d_inode) {
+        u64 inode = old_dentry->d_inode->i_ino;
+        u8 *is_canary = canary_inodes.lookup(&inode);
+        if (is_canary) {
+            u8 one = 1;
+            blocked_pids.update(&pid, &one);
+            return -EPERM;
+        }
+    }
+    return 0;
+}
+"""
     return f"""
 #include <uapi/linux/ptrace.h>
 #include <linux/fs.h>
@@ -629,7 +661,7 @@ static inline int __handle_rename(void *ctx,
     rename_count.update(&pid, &new_cnt);
     rename_ts.update(&pid, &ts);
 
-    {"u8 one = 1;\n    if (new_cnt >= VELOCITY_THRESHOLD) { blocked_pids.update(&pid, &one); }" if (enforce and lsm) else ""}
+    {_block_on_velocity}
 
     struct proc_profile_t *p = proc_profiles.lookup(&pid);
     struct proc_profile_t newp = {{0}};
@@ -638,7 +670,7 @@ static inline int __handle_rename(void *ctx,
     p->last_op_ts = ts;
     p->score = __calc_score(p);
     // Behavioral score block — needs higher threshold than velocity
-    {"u8 blk = 1; if (p->score >= 85) { blocked_pids.update(&pid, &blk); }" if (enforce and lsm) else ""}
+    {_block_on_rename_score}
     proc_profiles.update(&pid, p);
 
     struct rename_event_t ev = {{0}};
@@ -717,7 +749,7 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
     p->write_bytes += (u64)PT_REGS_PARM3(ctx);
     p->last_op_ts = ts;
     p->score = __calc_score(p);
-    {"u8 blk = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &blk); }" if (enforce and lsm) else ""}
+    {_block_on_write_score}
     proc_profiles.update(&pid, p);
 
     u64 *last = write_ts.lookup(&pid);
@@ -762,25 +794,7 @@ TRACEPOINT_PROBE(syscalls, sys_enter_execve) {{
 }}
 
 // ── BPF LSM Hook ──────────────────────────────────────────────────────────
-{"" if not (enforce and lsm) else """
-LSM_PROBE(path_rename,
-          const struct path *old_dir, struct dentry *old_dentry,
-          const struct path *new_dir, struct dentry *new_dentry) {
-    u32 pid = bpf_get_current_pid_tgid() >> 32;
-    u8 *blocked = blocked_pids.lookup(&pid);
-    if (blocked && *blocked) return -EPERM;
-    if (old_dentry && old_dentry->d_inode) {
-        u64 inode = old_dentry->d_inode->i_ino;
-        u8 *is_canary = canary_inodes.lookup(&inode);
-        if (is_canary) {
-            u8 one = 1;
-            blocked_pids.update(&pid, &one);
-            return -EPERM;
-        }
-    }
-    return 0;
-}
-"""}
+{_lsm_hook}
 """
 
 # ---------------------------------------------------------------------------
