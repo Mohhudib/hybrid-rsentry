@@ -143,6 +143,70 @@ def _run_latency_check() -> dict:
         shutil.rmtree(root, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# Pytest interface — gates the 4 evaluation metrics in CI.
+# The scenarios run once via a module-scoped fixture; each metric is its own
+# test so a failure points at the exact target that regressed.
+# ---------------------------------------------------------------------------
+import pytest
+
+
+@pytest.fixture(scope="module")
+def lockbit_metrics():
+    """Run all detection scenarios once and return aggregated metrics."""
+    results = [_run_scenario(t, threshold=2, window=3.0) for t in TRAVERSAL_ORDERS]
+    detected = [r for r in results if r["detected"]]
+    avg_files = (sum(r["files_before_detection"] for r in detected) / len(detected)
+                 if detected else float("inf"))
+    avg_latency = (sum(r["detection_latency_ms"] for r in detected) / len(detected)
+                   if detected else float("inf"))
+    return {
+        "results": results,
+        "coverage_pct": len(detected) / len(TRAVERSAL_ORDERS) * 100,
+        "avg_files": avg_files,
+        "avg_latency_ms": avg_latency,
+        "fp": _run_fp_check(),
+        "latency": _run_latency_check(),
+    }
+
+
+def test_coverage_all_traversals_detected(lockbit_metrics):
+    # Target: > 95% of traversal orders detected
+    assert lockbit_metrics["coverage_pct"] > 95, \
+        f"coverage {lockbit_metrics['coverage_pct']:.0f}% — some traversals missed"
+
+
+@pytest.mark.parametrize("idx,traversal", list(enumerate(TRAVERSAL_ORDERS)))
+def test_each_traversal_detected(lockbit_metrics, idx, traversal):
+    # Detection within the file budget is the invariant. The *severity* of the
+    # first alert is not asserted — it legitimately varies (CANARY_TOUCHED vs a
+    # velocity-burst PROCESS_ANOMALY) with which file the traversal reaches first.
+    r = lockbit_metrics["results"][idx]
+    assert r["detected"], f"traversal={traversal} did not detect LockBit"
+    assert r["files_before_detection"] <= 3, \
+        f"traversal={traversal} took {r['files_before_detection']} files to detect"
+
+
+def test_files_before_detection_under_3(lockbit_metrics):
+    assert lockbit_metrics["avg_files"] < 3, \
+        f"avg files before detection {lockbit_metrics['avg_files']:.1f} >= 3"
+
+
+def test_detection_latency_under_500ms(lockbit_metrics):
+    assert lockbit_metrics["avg_latency_ms"] < 500, \
+        f"avg detection latency {lockbit_metrics['avg_latency_ms']:.1f}ms >= 500ms"
+
+
+def test_false_positive_rate_under_2pct(lockbit_metrics):
+    fp_rate = lockbit_metrics["fp"]["fp_rate_pct"]
+    assert fp_rate < 2, f"FP rate {fp_rate}% >= 2% on benign .bak/.tmp/.log renames"
+
+
+def test_canary_latency_under_500ms(lockbit_metrics):
+    assert lockbit_metrics["latency"]["under_500ms"], \
+        f"canary-touch max latency {lockbit_metrics['latency']['canary_latency_max_ms']}ms >= 500ms"
+
+
 def main() -> int:
     import argparse
     ap = argparse.ArgumentParser(description="LockBit 5.0 detection test")
