@@ -45,8 +45,14 @@ CORPUS_EXTS = [".docx", ".xlsx", ".pdf", ".txt", ".jpg", ".db", ".vmdk", ".vmx"]
 def populate_corpus(root: str, dirs: int = 8, depth: int = 4,
                     files_per_dir: int = 6) -> List[str]:
     """Create a synthetic file tree under root. Returns list of created files."""
-    created = []
     root_p = Path(root)
+    root_p.mkdir(parents=True, exist_ok=True)
+    if any(root_p.iterdir()):
+        raise ValueError(
+            f"populate_corpus: target directory {root!r} is non-empty — "
+            "pass an empty or non-existent directory to avoid overwriting real files."
+        )
+    created = []
 
     def _make_dir(parent: Path, cur_depth: int) -> None:
         if cur_depth > depth:
@@ -75,7 +81,7 @@ def enumerate_targets(root: str, traversal: str,
             dirnames.sort()
             for fn in sorted(filenames):
                 fp = os.path.join(dirpath, fn)
-                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "zzz_")):
+                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
                     continue
                 all_files.append(fp)
 
@@ -83,7 +89,7 @@ def enumerate_targets(root: str, traversal: str,
         for dirpath, _, filenames in os.walk(root):
             for fn in filenames:
                 fp = os.path.join(dirpath, fn)
-                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "zzz_")):
+                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
                     continue
                 all_files.append(fp)
         random.shuffle(all_files)
@@ -95,7 +101,7 @@ def enumerate_targets(root: str, traversal: str,
             depth = dirpath.count(os.sep)
             for fn in filenames:
                 fp = os.path.join(dirpath, fn)
-                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "zzz_")):
+                if skip_aaa and os.path.basename(fp).startswith(("AAA_", "aaa_", "ZZZ_", "zzz_")):
                     continue
                 with_depth.append((depth, fp))
         with_depth.sort(key=lambda x: -x[0])
@@ -154,9 +160,24 @@ def _simulate_file(path: str, profile: Profile) -> Optional[str]:
     elif profile.mode == "percent":
         enc = _encrypt_percent(data, profile.percent)
     elif profile.mode == "two_pass":
-        # quick partial pass then thorough
+        # Pass 1: write partial to intermediate file then delete original
         partial = _encrypt_percent(data, 30)
-        enc = _encrypt_full(partial)
+        partial_path = Path(str(p) + ".partial")
+        try:
+            partial_path.write_bytes(partial)
+            p.unlink()
+        except OSError:
+            partial_path.unlink(missing_ok=True)
+            return None
+        # Pass 2: write full encryption and delete intermediate
+        final_path = str(partial_path) + "." + profile.ext_fn()
+        try:
+            Path(final_path).write_bytes(_encrypt_full(partial))
+            partial_path.unlink()
+        except OSError:
+            partial_path.unlink(missing_ok=True)
+            return None
+        return final_path
     else:
         enc = _encrypt_full(data)
 
@@ -175,12 +196,25 @@ def _simulate_file(path: str, profile: Profile) -> Optional[str]:
 
 def _backup_corpus(root: str) -> str:
     backup = tempfile.mkdtemp(prefix="rsentry_backup_")
-    shutil.copytree(root, os.path.join(backup, "corpus"))
+    dest = os.path.join(backup, "corpus")
+    shutil.copytree(root, dest)
+    src_count = sum(1 for p in Path(root).rglob("*") if p.is_file())
+    dst_count = sum(1 for p in Path(dest).rglob("*") if p.is_file())
+    if dst_count < src_count:
+        shutil.rmtree(backup, ignore_errors=True)
+        raise RuntimeError(
+            f"Corpus backup incomplete: {dst_count}/{src_count} files copied to {dest}"
+        )
     return backup
 
 
 def _restore_corpus(root: str, backup: str) -> None:
     corpus_backup = os.path.join(backup, "corpus")
+    if not os.path.exists(corpus_backup) or not any(Path(corpus_backup).iterdir()):
+        raise RuntimeError(
+            f"Corpus backup at {corpus_backup!r} is empty or missing — "
+            f"refusing to overwrite {root!r}"
+        )
     if os.path.exists(root):
         shutil.rmtree(root)
     shutil.copytree(corpus_backup, root)
