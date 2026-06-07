@@ -95,13 +95,12 @@ function LiveCounter({ label, value, color = '#00f5ff' }) {
 }
 
 export default function ThreatConsole() {
-  const [alerts, setAlerts]     = useState(() => Array.from({ length: 6 }, generateAlert));
-  const [risk, setRisk]         = useState(12);
-  const [filesScanned, setFS]   = useState(847291);
-  const [threatsStopped, setTS] = useState(23);
-  const [uptime]                = useState('99.97%');
-  const feedRef                 = useRef();
-  const cycleRef                = useRef(0);
+  const [alerts, setAlerts]   = useState(() => Array.from({ length: 6 }, generateAlert));
+  const [risk, setRisk]       = useState(12);
+  const [filesScanned, setFS] = useState(847291);
+  const threatsStopped        = 23;
+  const [uptime]              = useState('99.97%');
+  const feedRef               = useRef();
 
   // Alert feed
   useEffect(() => {
