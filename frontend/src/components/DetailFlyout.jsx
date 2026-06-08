@@ -182,19 +182,25 @@ export default function DetailFlyout({ alert, liveEvent, onClose, onRefresh }) {
 
         {/* Filesystem */}
         <Section icon="fa-folder-tree" title="Filesystem">
-          <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--muted)' }}>
+              host: <span style={{ color: 'var(--accent)' }}>{alert.host_id}</span>
+            </span>
             {filePath ? (
-              <span>Showing path: <span style={{ fontFamily: 'var(--mono)', color: 'var(--accent)' }}>{filePath}</span></span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--muted)', wordBreak: 'break-all' }}>
+                · <span style={{ color: 'var(--text-2)' }}>{filePath}</span>
+              </span>
             ) : (
-              <span style={{ color: 'var(--muted)' }}>No file path — showing full tree</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>· full tree</span>
             )}
           </div>
           <div
-            style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', height: fsExpanded ? 480 : 240, transition: 'height 0.2s' }}
+            style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', height: fsExpanded ? 560 : 320, transition: 'height 0.2s' }}
           >
             <FileSystemGraph
               newEvent={liveEvent}
               highlightPath={filePath}
+              hostId={alert.host_id}
             />
           </div>
           <button

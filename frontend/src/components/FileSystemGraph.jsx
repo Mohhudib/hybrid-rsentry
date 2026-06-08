@@ -28,7 +28,7 @@ function buildGraph(events) {
       const path  = '/' + parts.slice(0, i + 1).join('/');
       const ppath = i === 0 ? '/' : '/' + parts.slice(0, i).join('/');
       if (!nodesMap.has(path)) {
-        nodesMap.set(path, { id: path, name, depth: i + 1, stats: emptyStats(), isCanary: name.startsWith('AAA_'), isFile: i === parts.length - 1 });
+        nodesMap.set(path, { id: path, name, depth: i + 1, stats: emptyStats(), isCanary: /^(AAA_|aaa_|ZZZ_|zzz_)/.test(name), isFile: i === parts.length - 1 });
         linksSet.add(`${ppath}||${path}`);
       }
       mergeStats(nodesMap.get(path).stats, ev);
@@ -67,7 +67,7 @@ function buildHighlightPaths(highlightPath) {
 
 // ─── Main component ───────────────────────────────────────────────────────
 
-export default function FileSystemGraph({ highlightPath, newEvent }) {
+export default function FileSystemGraph({ highlightPath, newEvent, hostId }) {
   const containerRef = useRef(null);
   const svgRef       = useRef(null);
   const simRef       = useRef(null);
@@ -80,11 +80,13 @@ export default function FileSystemGraph({ highlightPath, newEvent }) {
   // ── fetch events ──────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
     try {
-      const { data } = await getEvents({ limit: 500 });
+      const params = { limit: 500 };
+      if (hostId) params.host_id = hostId;
+      const { data } = await getEvents(params);
       setEvents(data);
     } catch (_) {}
     finally { setLoading(false); }
-  }, []);
+  }, [hostId]);
 
   useEffect(() => {
     fetchEvents();
@@ -95,6 +97,7 @@ export default function FileSystemGraph({ highlightPath, newEvent }) {
   // Live event injection
   useEffect(() => {
     if (!newEvent?.file_path) return;
+    if (hostId && newEvent.host_id && newEvent.host_id !== hostId) return;
     setEvents(prev => {
       const synth = { id: newEvent.event_id, host_id: newEvent.host_id, event_type: newEvent.event_type, severity: newEvent.severity, file_path: newEvent.file_path, entropy_delta: newEvent.entropy_delta || 0, canary_hit: newEvent.canary_hit || false, timestamp: new Date().toISOString() };
       if (prev.find(e => e.id === synth.id)) return prev;
@@ -246,8 +249,8 @@ export default function FileSystemGraph({ highlightPath, newEvent }) {
       .force('charge',  d3.forceManyBody().strength(d => d.isFile ? -35 : -70))
       .force('center',  d3.forceCenter(W / 2, H / 2).strength(0.05))
       .force('collide', d3.forceCollide(d => nodeRadius(d, hPaths) + 4))
-      .force('radial',  highlightPath
-        ? d3.forceRadial(0, W / 2, H / 2).strength(d => d.id === highlightPath ? 0.6 : 0)
+      .force('radial',  hPaths
+        ? d3.forceRadial(0, W / 2, H / 2).strength(d => hPaths.has(d.id) ? 0.6 : 0)
         : null
       );
 

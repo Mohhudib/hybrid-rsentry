@@ -146,8 +146,8 @@ export default function EventDetailModal({ event, onClose }) {
                   {event.file_path}
                 </span>
               </div>
-              <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', height: 240 }}>
-                <FileSystemGraph highlightPath={event.file_path} />
+              <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', background: 'var(--bg)', height: 280 }}>
+                <FileSystemGraph highlightPath={event.file_path} hostId={event.host_id} />
               </div>
             </div>
           )}
