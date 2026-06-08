@@ -1,6 +1,6 @@
 # Startup Guide
 
-**Last updated:** 2026-05-22 (includes fix for .env sourcing — required for backend and Celery)
+**Last updated:** 2026-06-09 (eBPF sensor startup added; simulation commands updated; Vite output corrected)
 
 ---
 
@@ -50,8 +50,16 @@ Wait until: `celery@hostname ready.`
 ---
 
 ### Terminal 4 — Agent (file monitor)
+
+**eBPF sensor (default — requires kernel ≥ 6.19 and `lsm=bpf` boot param):**
 ```bash
 cd ~/hybrid-rsentry && set -a && source .env && set +a && sudo -E ~/hybrid-rsentry/venv/bin/python -m agent.monitor
+```
+Wait until: `[ebpf] mode=enforce lsm=True …` then `[ebpf] BPF loaded.`
+
+**inotify fallback (any kernel, no BCC required):**
+```bash
+cd ~/hybrid-rsentry && set -a && source .env && set +a && SENSOR_BACKEND=inotify sudo -E ~/hybrid-rsentry/venv/bin/python -m agent.monitor
 ```
 Wait until: `Monitor running. Press Ctrl+C to stop.`
 
@@ -63,7 +71,7 @@ Wait until: `Monitor running. Press Ctrl+C to stop.`
 ```bash
 cd ~/hybrid-rsentry/frontend && npm start
 ```
-Wait until: `Compiled successfully!`
+Wait until: `VITE v5.x.x  ready in … ms` and `Local: http://localhost:3000/`
 
 Open browser: **http://localhost:3000**
 
@@ -102,16 +110,32 @@ You should see a CRITICAL alert appear in the dashboard within ~1 second.
 
 ---
 
-## Run a ransomware simulation (safe, test directory only)
+## Run a ransomware simulation (safe, sandboxed test directory only)
+
+All simulations create a disposable corpus under `/tmp/rsentry_sim_*`, run the attack, then restore the originals. They will not touch any real files.
+
 ```bash
-# Creates /tmp/rsentry_test with files, then overwrites them with high-entropy data
+# LockBit 5.0 — two-pass, 16-char random extension, prioritises .vmdk/.vmx
+python simulations/sim_lockbit.py
+
+# Akira — intermittent encryption (partial corpus), .akiranew extension
+python simulations/sim_akira.py
+
+# Qilin — percent-mode (40 % of corpus), 7-char random extension
+python simulations/sim_qilin.py
+
+# Generic patterns (earlier traversal sims):
 python simulations/sim_random.py --delay 0.1
+python simulations/sim_depth.py  --delay 0.1
+python simulations/sim_dfs.py
 
-# Or depth-first pattern:
-python simulations/sim_depth.py --delay 0.1
-
-# Dry run (prints what it would do, doesn't modify files):
+# Dry run (prints what it would do, no file modifications):
 python simulations/sim_random.py --dry-run
+```
+
+All simulations support `--validate-defense` to check that containment fired:
+```bash
+python simulations/sim_lockbit.py --validate-defense
 ```
 
 ---

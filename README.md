@@ -13,7 +13,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql)](https://postgresql.org)
 [![Tests](https://img.shields.io/badge/tests-182%20passing-brightgreen?style=flat-square)](#testing)
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen?style=flat-square)](#testing)
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v2.2.0-blue?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
 **[Landing Page](https://mohhudib.github.io/hybrid-rsentry/)**
@@ -38,7 +38,7 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 - **Process Lineage Scoring** — Scores suspicious process ancestry chains including parent names, spawn location, and binary SHA-256 verified against 416 K dpkg hashes (MATCH / MISMATCH / UNKNOWN verdicts)
 - **Ransomware Extension Detection** — Renames to `.enc`, `.locked`, `.wcry`, `.crypted` etc. trigger CRITICAL (if the source was a document) or HIGH alert
 - **Markov Chain Repositioning** — Adaptively moves canary files to predicted high-risk directories based on observed filesystem access patterns; blocks repositioning into `.git/`, `/proc/`, `/sys/`, `/dev/`, `/run/`
-- **eBPF Kernel Sensor** (`agent/monitor_ebpf.py`) — 5-syscall behavioral detection (`openat`, `vfs_write`, `unlink`, `rename`, `execve`); per-process `proc_profile` BPF map with behavioral scoring (0–100); **BPF LSM canary blocking** (`-EPERM` in nanoseconds, requires `lsm=bpf`); velocity burst, family profiling (LockBit 5.0 / Akira / ESXi); BCC 0.35, kernel ≥ 6.19
+- **eBPF Kernel Sensor** (`agent/monitor_ebpf.py`) — 5-syscall behavioral detection (`openat`, `vfs_write`, `unlink`, `rename`, `execve`); per-process `proc_profile` BPF map with behavioral scoring (0–100); **BPF LSM canary blocking** (`-EPERM` in nanoseconds, requires `lsm=bpf`); velocity burst, family profiling (LockBit 5.0 / Akira / ESXi); BCC 0.35, kernel ≥ 6.19; **Signal 6 hyper-fast unlink burst** (≥20 del/sec + 5+ files → +15 score) and **kernel-level unlink blocking** close the speed gap for LockBit/Qilin bulk encryption completing in under 1 second
 - **Combined Threat Scoring** — Fuses entropy and lineage signals into a weighted threat score for accurate severity classification
 - **False Positive Suppression** — Comprehensive whitelist system (`agent/exceptions.py`) covering browsers, package managers, system paths, archive formats, media files, and smart temp-dir filtering to eliminate noise on live Linux systems
 
@@ -58,14 +58,14 @@ When a CRITICAL threat is detected, the system automatically executes a tree-awa
 - System health check: analyzes recent activity patterns and reports overall endpoint status
 
 ### SIEM Dashboard
-- Kibana-style 3-column layout: **FacetRail** filter panel, center (MetricsStrip + stacked histogram + sortable AlertsTable), **DetailFlyout** on alert click
+- Kibana-style 3-column layout: **FacetRail** filter panel (toggle button in search bar + X close button), center (MetricsStrip + stacked histogram + sortable AlertsTable), **DetailFlyout** on alert click (conditional — only mounts when an alert is selected)
 - **TopBar** horizontal navigation with 6 tabs + live alert count badge; **StatusBar** at the bottom with agents/EPS/WS status/cluster
 - **D3 v7 force-directed filesystem graph** — Obsidian-style node graph inside DetailFlyout and EventDetailModal; zoom, drag, tooltip, selected path pulled to center
 - Clickable TacticalResponseLog events → EventDetailModal with Summary/Entity/MITRE/Filesystem/Raw tabs
 - Live WebSocket feed — MetricsStrip, histogram, and table refresh instantly on new events
 - Host risk panel with radial risk score gauge and alert breakdown by severity
 - AI Analyst page with pending spinners, error cards, and 4-minute analysis persistence
-- **PDF Forensic Export** — date filter, severity filter, host-aware Hosts Overview table, per-alert drill-down with AI analysis; SHA-256 integrity footer on every page
+- **PDF / JSON Forensic Export** — date filter, severity filter, host-aware Hosts Overview table, per-alert drill-down with AI analysis; SHA-256 integrity footer on every page; Firefox-compatible download (5 s object URL lifetime)
 
 ---
 
@@ -395,7 +395,8 @@ Development is tracked in the **[R-Sentry Roadmap GitHub Project](https://github
 | Milestone | Scope | Status |
 |---|---|---|
 | [v2.1.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/1) | eBPF Phase 3, Alembic migrations, CI/CD hardening, 182 tests | ✅ Released 2026-06-08 |
-| [v2.2.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/2) | Integration tests, Exception Management UI, alert correlation engine | Target 2026-07-31 |
+| [v2.2.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/2) | LockBit/Qilin speed gap fix, UI improvements, Celery race fix, PDF export hardening | ✅ Released 2026-06-09 |
+| [v2.3.0](https://github.com/Mohhudib/hybrid-rsentry/milestone/3) | Integration tests, Exception Management UI, alert correlation engine | Target 2026-07-31 |
 
 See the [Roadmap wiki page](https://github.com/Mohhudib/hybrid-rsentry/wiki/Roadmap) for the full list of completed and planned items.
 

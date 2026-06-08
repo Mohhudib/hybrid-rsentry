@@ -1288,15 +1288,21 @@ RANSOMWARE_FAMILIES = {
 
 ```python
 BEHAVIORAL_WEIGHTS = {
-    'rapid_del_write':    35,  # ≥2 del/sec + writes
-    'rename_velocity':    25,  # ≥3 renames in window
-    'total_ops_deleted':  15,  # total_ops>15 && deleted>3
-    'write_read_symmetry':15,  # write/read ratio anomaly
-    'child_spawn_files':  10,  # execve + file ops pattern
+    'rapid_del_write':    35,  # Signal 1a: ≥2 del/sec + concurrent writes
+    'rapid_del_write_5+': 10,  # Signal 1b: Signal 1a AND files_deleted > 5
+    'rename_velocity':    25,  # Signal 2:  ≥3 renames in window
+    'total_ops_deleted':  15,  # Signal 3:  total_ops>15 && deleted>3
+    'child_spawn_files':  10,  # Signal 5:  execve + file ops pattern
+    'hyper_fast_burst':   15,  # Signal 6:  ≥20 del/sec && files_deleted≥5
+                               #            (LockBit/Qilin speed gap fix)
 }
 ```
 
-**5-syscall behavioral scoring:** The `proc_profile` BPF map accumulates per-process counters across 5 syscall hooks (`openat`, `vfs_write`, `unlink`, `rename`, `execve`). Each signal adds to a 0–100 score. When a `behavior_event` fires, entropy is verified in userspace: ≥6.5 bits → BLOCK + SIGSTOP (confirms silent encryption); <6.5 bits → ALERT only (prevents false positives on legitimate batch operations).
+**5-syscall behavioral scoring:** The `proc_profile` BPF map accumulates per-process counters across 5 syscall hooks (`openat`, `vfs_write`, `unlink`, `rename`, `execve`). Each signal contributes to a 0–100 score. `SCORE_ALERT=50` → submit `behavior_event` to userspace; `SCORE_BLOCK=70` → immediately write PID into `blocked_pids` BPF map.
+
+**Signal 6 (hyper-fast burst):** Closes the speed gap for LockBit/Qilin, which use a *create-new + delete-original* pattern (not `os.rename()`), so the rename velocity tracker never fires. At 2000+ del/sec they only scored 60 (Signals 1a+1b+3), below `SCORE_BLOCK`. Signal 6 pushes the score to 75, allowing `__handle_unlink` to call `blocked_pids.update()` directly without waiting for a userspace round-trip.
+
+**`_handle_behavior` entropy gate:** The Python callback fires when a `behavior_event` arrives. It now contains when `entropy >= 6.5` **or** `ev.score >= 70`. The score-only path handles ultra-fast families that delete files faster than the 1 ms perf poll can sample entropy from open file descriptors.
 
 ---
 
@@ -1845,7 +1851,7 @@ const runHealthCheck = async () => {
 
 ### `frontend/src/pages/AlertsPage.jsx` — 3-Column SIEM Layout
 
-**Role:** The main alert triage page, redesigned as a Kibana-style 3-column SIEM layout. Left column is `FacetRail` (filter panel), center column has `MetricsStrip` + `AlertsHistogram` + `AlertsTable` + query bar, right column is `DetailFlyout` (opened when an alert row is clicked).
+**Role:** The main alert triage page, redesigned as a Kibana-style 3-column SIEM layout. Left column is `FacetRail` (filter panel, toggled open/closed via a sliders button in the search bar), center column has `MetricsStrip` + `AlertsHistogram` + `AlertsTable` + query bar, right column is `DetailFlyout` (conditionally mounted only when an alert row is clicked).
 
 ---
 
@@ -1878,9 +1884,9 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
 
 **Why 3 columns?** Mirrors how real SOC dashboards work — filters on the left narrow the alert set, the center shows the data, the right shows details without a full navigation away. Keeps context (the full alert list) visible while drilling into a specific alert.
 
-**FacetRail** (`FacetRail.jsx`) — builds filter groups from real alert data (unique host IDs, severities, event types etc.). Selecting a facet value adds it to `facetFilters`, which are passed to `fetchAlerts`. Each group is collapsible.
+**FacetRail** (`FacetRail.jsx`) — builds filter groups from real alert data (unique host IDs, severities, statuses). Selecting a facet value adds it to `facetFilters`. A sliders toggle button in the query bar hides/shows the rail; an X button inside the rail also closes it. Each group is collapsible, with a search input to narrow visible field groups.
 
-**DetailFlyout** (`DetailFlyout.jsx`) — slides in from the right when an alert row is clicked (`selectedAlert` is set). Contains 5 tabs:
+**DetailFlyout** (`DetailFlyout.jsx`) — renders only when `selected` is non-null (`{selected && <DetailFlyout … />}`). Contains 5 tabs:
 - **Summary** — severity badge, event type, timestamps, score breakdown
 - **Entity** — host ID, process name, PID, file path
 - **MITRE** — ATT&CK technique mapping for the event type

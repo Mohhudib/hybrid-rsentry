@@ -4,6 +4,29 @@ All notable changes to Hybrid R-Sentry are documented here.
 
 ---
 
+## [2.2.0] — 2026-06-09
+
+### Fixed
+
+- **LockBit / Qilin speed gap closed** (`agent/monitor_ebpf.py`) — Ultra-fast bulk encryption completing in under 1 second (1 400 files in ~0.6 s for LockBit) was escaping containment because the BPF behavioral score reached `SCORE_ALERT` (50) but not `SCORE_BLOCK` (70), and the Python `_handle_behavior` callback required `entropy >= 6.5` — a check that always returned 0.0 because the simulation had already deleted and restored files before the 1 ms perf buffer poll ran. Three-part fix:
+  1. **Signal 6 — hyper-fast unlink burst:** `del_per_sec >= 20 && files_deleted >= 5 → +15` added to `__calc_score`. Pushes LockBit/Qilin score from 60 → 75, crossing `SCORE_BLOCK` before the `alerted` flag is set.
+  2. **`_block_on_unlink_score` in `__handle_unlink`:** When score reaches `SCORE_BLOCK`, the PID is immediately written into the `blocked_pids` BPF map at the kernel level. Previously `__handle_unlink` could only submit a `behavior_event` perf buffer entry — it had no path to `blocked_pids.update()`.
+  3. **Entropy gate relaxed in `_handle_behavior`:** Changed `if entropy >= 6.5:` → `if entropy >= 6.5 or ev.score >= 70:`. High-confidence kernel scores now trigger SIGSTOP without requiring a readable sample file.
+
+- **Celery `update_host_risk` race on `CONTAINMENT_COMPLETE`** (`backend/routers/events.py`, `backend/workers/tasks.py`) — `update_host_risk.delay()` was called in `events.py` concurrently with `auto_ack_containment`, so the risk recalculation often ran before the acknowledgment was committed and showed a stale elevated score. Fix: removed the call from `events.py`; `update_host_risk.delay()` is now called at the end of `auto_ack_containment` and `auto_ack_by_event` after the DB commit.
+
+### Changed
+
+- **FacetRail toggle** (`frontend/src/pages/AlertsPage.jsx`, `frontend/src/components/FacetRail.jsx`) — A sliders button inside the search bar toggles the FacetRail open/closed; the rail itself has an X close button. Both call the same `setRailOpen` state so they stay in sync.
+
+- **DetailFlyout conditional mount** (`frontend/src/pages/AlertsPage.jsx`) — `DetailFlyout` is now only rendered when an alert is selected (`{selected && <DetailFlyout … />}`). Previously it was always mounted and showed a placeholder, wasting layout space and making a blank third column the default state.
+
+- **PDF / JSON export hardened** (`frontend/src/pages/ReportsPage.jsx`):
+  - Replaced `ΔH` column header (U+0394 outside WinAnsiEncoding) with `Entr` — eliminates the jsPDF UCS-2 BE encoding fallback that corrupted the PDF in some viewers.
+  - `triggerDownload` now keeps the `<a>` element and object URL alive for 5 seconds before revoking — fixes Firefox silently cancelling downloads where the URL was revoked before the browser started the transfer.
+
+---
+
 ## [2.1.1] — 2026-06-08
 
 ### Fixed
