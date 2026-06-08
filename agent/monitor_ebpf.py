@@ -1015,33 +1015,38 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     if (pid < 100) return 0;
     u64 ts  = bpf_ktime_get_ns();
-    {_rl_check}
-    struct proc_profile_t *p = proc_profiles.lookup(&pid);
-    struct proc_profile_t newp = {{0}};
-    if (!p) {{ newp.first_op_ts = ts; p = &newp; }}
-    // Update process profile write count
-    p->files_written++;
-    p->write_bytes += (u64)PT_REGS_PARM3(ctx);
-    p->last_op_ts = ts;
-    p->score = __calc_score(p);
-    {_block_on_write_score}
-    proc_profiles.update(&pid, p);
 
-    // Feature 1: per-inode write-offset silent-encryption detection.
-    // In-place ransomware rewrites jump around the file (offset != prev end);
-    // a sustained run of non-sequential writes freezes the PID inline.
+    // ── CHEAP COUNTING (host-wide, NEVER rate-limited) ──────────────────────
+    // Feature 1 (MITRE T1486 — Data Encrypted for Impact): per-inode write-offset
+    // silent-encryption detection. In-place ransomware rewrites jump around the
+    // file (offset != prev end); a sustained run of non-sequential writes freezes
+    // the PID inline. This block MUST run on EVERY regular-file write, on ANY
+    // inode, with NO rate limit in front of it: a fast-writing attacker (the real
+    // ransomware signature) would otherwise trip __rate_limited and its writes
+    // would never reach the non-sequential counter. The rate limiter is therefore
+    // pushed BELOW this block — it only throttles the expensive emit/profile path.
     u64 _ino = file->f_inode->i_ino;
     loff_t _off = 0;
     bpf_probe_read_kernel(&_off, sizeof(_off), (void *)PT_REGS_PARM4(ctx));
     u64 _cur = (u64)_off;
     u64 _len = (u64)PT_REGS_PARM3(ctx);
     u8 silent_enc = 0;
+    // Was this PID already frozen by an EARLIER detection? Capture it before the
+    // counter runs. If so, the cheap counting below still proceeds (cheap, host-
+    // wide), but we must NOT re-emit a silent_enc event — containment is already
+    // armed, and re-firing on every subsequent NONSEQ_THRESH run is the exact
+    // duplicate-emit flood the post-freeze throttle exists to prevent.
+    u8 *_pre_blk = blocked_pids.lookup(&pid);
+    u8 _was_blocked = (_pre_blk && *_pre_blk) ? 1 : 0;
     struct woff_t *wo = write_offset.lookup(&_ino);
     if (wo) {{
         if (_cur != wo->last_end) {{
             wo->nonseq += 1;
             if (wo->nonseq >= NONSEQ_THRESH) {{
-                silent_enc = 1;
+                // Emit the critical event ONLY on the initial detection (PID not
+                // yet frozen). An already-blocked PID keeps counting but stays
+                // silent — the throttle below catches it.
+                if (!_was_blocked) silent_enc = 1;
                 wo->nonseq = 0;
                 u8 _one = 1;
                 blocked_pids.update(&pid, &_one);
@@ -1057,6 +1062,46 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
         write_offset.update(&_ino, &_nw);
     }}
 
+    // ── CRITICAL EVENT BYPASS ───────────────────────────────────────────────
+    // A confirmed silent-encryption detection (NONSEQ_THRESH crossed) is NEVER
+    // throttled. The PID is already frozen in blocked_pids above; deliver the
+    // SILENT_ENCRYPTION alert + freeze to userspace immediately even if this PID
+    // is currently rate-limited, then return — containment is armed, so no
+    // further profiling/burst work is needed for this write.
+    if (silent_enc) {{
+        struct write_event_t sev = {{0}};
+        sev.pid = pid;
+        struct task_struct *_task_s = (struct task_struct *)bpf_get_current_task();
+        sev.ppid = (_task_s && _task_s->real_parent) ? _task_s->real_parent->tgid : 0;
+        sev.ts = ts; sev.inode = _ino; sev.write_count = 0;
+        sev.offset = _cur; sev.length = _len; sev.silent_enc = 1;
+        bpf_get_current_comm(&sev.comm, sizeof(sev.comm));
+        write_events.perf_submit(ctx, &sev, sizeof(sev));
+        return 0;
+    }}
+
+    // ── POST-FREEZE THROTTLE ────────────────────────────────────────────────
+    // PID already frozen (contained by an earlier detection): the cheap counter
+    // above still ran, but suppress duplicate emits — the attack is already
+    // stopped, so do not flood userspace with thousands of repeat write events.
+    u8 *blocked = blocked_pids.lookup(&pid);
+    if (blocked && *blocked) return 0;
+
+    // ── EXPENSIVE PATH (rate-limited) ───────────────────────────────────────
+    // Behavioral profiling + userspace event submission are throttled per PID.
+    // The limiter lives HERE, never in front of the detection counter above.
+    {_rl_check}
+    struct proc_profile_t *p = proc_profiles.lookup(&pid);
+    struct proc_profile_t newp = {{0}};
+    if (!p) {{ newp.first_op_ts = ts; p = &newp; }}
+    // Update process profile write count
+    p->files_written++;
+    p->write_bytes += (u64)PT_REGS_PARM3(ctx);
+    p->last_op_ts = ts;
+    p->score = __calc_score(p);
+    {_block_on_write_score}
+    proc_profiles.update(&pid, p);
+
     u64 *last = write_ts.lookup(&pid);
     u64 *cnt  = write_count.lookup(&pid);
     u64 new_cnt = 1;
@@ -1064,14 +1109,17 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
         new_cnt = *cnt + 1;
     write_count.update(&pid, &new_cnt);
     write_ts.update(&pid, &ts);
-    u8 *blocked = blocked_pids.lookup(&pid);
-    if (!blocked && new_cnt < WRITE_BURST_THRESH && !silent_enc) return 0;
+    // Emit on a velocity burst, or once on the transition where the behavioral
+    // score just armed the block ({_block_on_write_score}); subsequent writes
+    // from a now-frozen PID are caught by the post-freeze throttle above.
+    u8 *wblk = blocked_pids.lookup(&pid);
+    if (!(wblk && *wblk) && new_cnt < WRITE_BURST_THRESH) return 0;
     struct write_event_t ev = {{0}};
     ev.pid = pid;
     struct task_struct *_task_w = (struct task_struct *)bpf_get_current_task();
     ev.ppid = (_task_w && _task_w->real_parent) ? _task_w->real_parent->tgid : 0;
     ev.ts = ts; ev.inode = file->f_inode->i_ino; ev.write_count = new_cnt;
-    ev.offset = _cur; ev.length = _len; ev.silent_enc = silent_enc;
+    ev.offset = _cur; ev.length = _len; ev.silent_enc = 0;
     bpf_get_current_comm(&ev.comm, sizeof(ev.comm));
     write_events.perf_submit(ctx, &ev, sizeof(ev));
     return 0;
@@ -1735,6 +1783,26 @@ def _selftest() -> int:
     check("bpf source declares write_offset map", "write_offset" in _src1)
     check("bpf source defines NONSEQ_THRESH", "NONSEQ_THRESH" in _src1)
     check("bpf source carries silent_enc flag", "silent_enc" in _src1)
+    # ── Feature 1 ORDERING (the detection-suppression bug fix): inside
+    # kprobe__vfs_write the cheap host-wide write-offset counter MUST run BEFORE
+    # the per-PID rate limiter, otherwise a fast attacker (>RATE_LIMIT writes/ms —
+    # the real ransomware signature) trips __rate_limited and its writes never
+    # reach the non-sequential counter, so Defense #1 never fires on a live attack.
+    import inspect as _inspect_ord
+    _vfs = build_bpf(enforce=True, lsm=True)
+    _vfs_body = _vfs[_vfs.index("int kprobe__vfs_write"):_vfs.index("// ── Execve handler")]
+    _i_offset = _vfs_body.index("write_offset.lookup")        # cheap counter
+    _i_rl     = _vfs_body.index("if (__rate_limited(pid, ts)) return 0;")
+    check("write-offset counter runs BEFORE rate limiter in vfs_write",
+          _i_offset < _i_rl)
+    # Critical-event bypass: a confirmed silent_enc detection emits + freezes even
+    # while rate-limited (it sits above the {_rl_check} line).
+    _i_bypass = _vfs_body.index("CRITICAL EVENT BYPASS")
+    check("silent_enc critical bypass precedes rate limiter",
+          _i_bypass < _i_rl)
+    check("vfs_write has post-freeze throttle (suppress duplicate emits)",
+          "POST-FREEZE THROTTLE" in _vfs_body
+          and "if (blocked && *blocked) return 0;" in _vfs_body)
 
     # ── Feature 1 SAFELIST: container runtimes / system daemons must never be
     # flagged or contained by the write-offset detector, even under a full
