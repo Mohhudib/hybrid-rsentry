@@ -1302,6 +1302,15 @@ def run_sensor(
         pid   = ev.pid
         comm  = ev.comm.decode(errors="replace").rstrip("\x00")
         ts    = time.time()
+        # SAFELIST GATE — must run BEFORE any flagging/containment. The kernel
+        # vfs_write probe carries no comm safelist, so it sets silent_enc for
+        # container runtimes (dockerd/containerd/runc/containerd-shim) and other
+        # daemons that legitimately do non-sequential writes. Without this guard
+        # the `or engine._make_event(...)` fallback below fabricated a
+        # SILENT_ENCRYPTION event even when observe_write_offset() suppressed it,
+        # and containment SIGKILLed the Docker stack. Mirror _handle_behavior.
+        if pid == engine.self_pid or comm in engine.ignore_comms:
+            return
         # Resolve inode → path for entropy check
         inode = ev.inode
         path  = engine._inode_path_cache.get(inode, "")
@@ -1418,6 +1427,12 @@ def run_sensor(
         comm = ev.comm.decode(errors="replace").rstrip("\x00")
         arg  = ev.arg.decode(errors="replace").rstrip("\x00")
         ts   = time.time()
+        # SAFELIST GATE — must run BEFORE the fabricated-event fallback + SIGKILL
+        # below. observe_execve() returns None for self/IGNORE_COMMS, but the
+        # `if event is None: fabricate` path treated that suppression as "kernel
+        # decided, kill anyway". Never flag/contain self or a safelisted comm.
+        if pid == engine.self_pid or comm in engine.ignore_comms:
+            return
         # Kernel already matched a backup-destruction keyword. Reconstruct the
         # userspace event (source of truth); fall back to a direct event if the
         # single argv buffer we carried isn't enough for the userspace matcher.
@@ -1720,6 +1735,54 @@ def _selftest() -> int:
     check("bpf source declares write_offset map", "write_offset" in _src1)
     check("bpf source defines NONSEQ_THRESH", "NONSEQ_THRESH" in _src1)
     check("bpf source carries silent_enc flag", "silent_enc" in _src1)
+
+    # ── Feature 1 SAFELIST: container runtimes / system daemons must never be
+    # flagged or contained by the write-offset detector, even under a full
+    # non-sequential write storm. The kernel probe has no comm safelist, so the
+    # userspace path is the authority (regression guard for the dockerd/
+    # containerd/runc SIGKILL incident).
+    print("write-offset safelist (container runtimes never flagged)")
+    _runtimes = ("dockerd", "containerd", "runc", "containerd-shi", "postgres", "redis-server")
+    for _rt in _runtimes:
+        eng_rt = DetectionEngine("t", ["/var/lib/docker"], self_pid=1)
+        # baseline write, then a sustained non-sequential storm (well past threshold)
+        eng_rt.observe_write_offset(4242, 1, _rt, 77, 0, 4096, "/var/lib/docker/img.bin", ts=0.0)
+        flagged = None
+        for i in range(1, 15):
+            r = eng_rt.observe_write_offset(4242, 1, _rt, 77, i * 4096 * 7, 4096,
+                                            "/var/lib/docker/img.bin", ts=float(i))
+            if r is not None:
+                flagged = r
+                break
+        check(f"{_rt} non-seq storm NOT flagged", flagged is None)
+        check(f"{_rt} NOT frozen (no containment)", 4242 not in eng_rt._frozen_pids)
+        check(f"{_rt} NOT armed active", 4242 not in eng_rt._active_pids)
+    # Positive control — an identical storm from a NON-safelisted comm IS flagged,
+    # proving the test exercises the real detection path, not a dead branch.
+    eng_ctl = DetectionEngine("t", ["/var/lib/docker"], self_pid=1)
+    eng_ctl.observe_write_offset(4243, 1, "evil-locker", 78, 0, 4096, "/data/x", ts=0.0)
+    ctl = None
+    for i in range(1, 15):
+        ctl = eng_ctl.observe_write_offset(4243, 1, "evil-locker", 78, i * 4096 * 7, 4096,
+                                           "/data/x", ts=float(i))
+        if ctl is not None:
+            break
+    check("non-safelisted comm IS flagged (positive control)",
+          ctl is not None and ctl["event_type"] == "SILENT_ENCRYPTION")
+    check("positive control freezes PID", 4243 in eng_ctl._frozen_pids)
+    # Handler-level gate present in source: the kernel has no comm safelist, so
+    # _handle_write / _handle_exec must short-circuit safelisted comms BEFORE the
+    # `or _make_event()` / fabricated-event fallback that triggers containment.
+    import inspect as _inspect
+    _run_src = _inspect.getsource(run_sensor)
+    _hw = _run_src[_run_src.index("def _handle_write"):_run_src.index("def _handle_behavior")]
+    check("_handle_write gates self_pid/ignore_comms before containment",
+          "comm in engine.ignore_comms" in _hw and "return" in _hw.split("ev.inode")[0])
+    _he = _run_src[_run_src.index("def _handle_exec"):]
+    # Guard must appear before the real call `engine.observe_execve(` (not the
+    # comment that mentions observe_execve()), i.e. before any fabricate/kill.
+    check("_handle_exec gates self_pid/ignore_comms before fabricated kill",
+          "comm in engine.ignore_comms" in _he.split("engine.observe_execve(")[0])
 
     # ── Feature 4: execve backup-destruction blocking ────────────────
     print("execve backup-destruction blocking")
