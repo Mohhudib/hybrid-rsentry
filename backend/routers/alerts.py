@@ -97,15 +97,17 @@ async def list_alerts_with_events(
             "acknowledged": alert.acknowledged,
             "created_at":   alert.created_at.isoformat() if alert.created_at else None,
             "resolved_at":  alert.resolved_at.isoformat() if alert.resolved_at else None,
-            "event_type":   event.event_type.value,
-            "pid":          event.pid,
-            "process_name": event.process_name,
-            "file_path":    event.file_path,
-            "lineage_score":event.lineage_score,
-            "entropy_delta":event.entropy_delta,
-            "canary_hit":   event.canary_hit,
-            "timestamp":    event.timestamp.isoformat() if event.timestamp else None,
-            "details":      event.details or {},
+            "event": {
+                "event_type":    event.event_type.value,
+                "pid":           event.pid,
+                "process_name":  event.process_name,
+                "file_path":     event.file_path,
+                "lineage_score": event.lineage_score,
+                "entropy_delta": event.entropy_delta,
+                "canary_hit":    event.canary_hit,
+                "timestamp":     event.timestamp.isoformat() if event.timestamp else None,
+                "details":       event.details or {},
+            },
         })
     return result
 
