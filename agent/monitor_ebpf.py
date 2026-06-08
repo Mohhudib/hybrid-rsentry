@@ -694,6 +694,9 @@ def build_bpf(enforce: bool = True, lsm: bool = False) -> str:
     _block_on_write_score = (
         "u8 blk = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &blk); }"
     ) if (enforce and lsm) else ""
+    _block_on_unlink_score = (
+        "u8 blk = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &blk); }"
+    ) if (enforce and lsm) else ""
     _lsm_hook = "" if not (enforce and lsm) else """
 LSM_PROBE(path_rename,
           const struct path *old_dir, struct dentry *old_dentry,
@@ -906,6 +909,8 @@ static inline u8 __calc_score(struct proc_profile_t *p) {{
         u64 del_per_sec = (p->files_deleted * 1000) / elapsed_ms;
         if (del_per_sec >= 2) {{ score += 35; }}
         if (del_per_sec >= 2 && p->files_deleted > 5) {{ score += 10; }}
+        // Signal 6: hyper-fast bulk unlink burst (LockBit/Qilin: >20 del/s with 5+ files)
+        if (del_per_sec >= 20 && p->files_deleted >= 5) {{ score += 15; }}
     }}
     // Signal 2: rename velocity
     if (p->files_renamed >= 3) score += 25;
@@ -971,8 +976,7 @@ static inline int __handle_unlink(void *ctx) {{
     p->files_deleted++;
     p->last_op_ts = ts;
     p->score = __calc_score(p);
-    // Behavioral score: ALERT only — final BLOCK decision in userspace
-    // (entropy check needed to avoid false positives with legitimate tools)
+    {_block_on_unlink_score}
     proc_profiles.update(&pid, p);
     if (p->score >= SCORE_ALERT && !p->alerted) {{
         struct behavior_event_t ev = {{0}};
@@ -1177,6 +1181,8 @@ def run_sensor(
     Falls back to SIGSTOP if lsm=bpf not active.
     """
     try:
+        import sys as _sys
+        _sys.path.insert(0, "/usr/lib/python3/dist-packages")
         from bcc import BPF
     except ImportError:
         sys.exit("[ebpf] python3-bpfcc not installed. "
@@ -1443,7 +1449,8 @@ def run_sensor(
                 entropy = float(engine.entropy_fn(sample_path))
             except Exception:
                 pass
-        if entropy >= 6.5:
+        _score_block = 70
+        if entropy >= 6.5 or ev.score >= _score_block:
             event = engine._make_event(
                 "PROCESS_ANOMALY", "HIGH", pid, ev.ppid, comm,
                 sample_path, sample_path, ts,
@@ -1460,7 +1467,7 @@ def run_sensor(
                     _score_q.put_nowait((event, pid, sample_path))
                 except Exception:
                     _emit(event)
-                if enforce and pid > 0 and entropy >= 6.5:
+                if enforce and pid > 0 and (entropy >= 6.5 or ev.score >= _score_block):
                     try:
                         b["blocked_pids"][b["blocked_pids"].Key(pid)] = b["blocked_pids"].Leaf(1)
                     except Exception:
