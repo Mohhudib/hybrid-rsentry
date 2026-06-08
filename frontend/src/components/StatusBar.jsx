@@ -9,6 +9,7 @@ function stamp() {
 export default function StatusBar({ connected }) {
   const [time, setTime] = useState(stamp());
   const [hostCount, setHostCount] = useState(null);
+  const [eventRate, setEventRate] = useState(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(stamp()), 30000);
@@ -27,6 +28,22 @@ export default function StatusBar({ connected }) {
     };
     fetchHosts();
     const t = setInterval(fetchHosts, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchEps = async () => {
+      try {
+        const since = new Date(Date.now() - 60000).toISOString();
+        const res = await fetch(`/api/events?since=${since}&limit=1000`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setEventRate(Array.isArray(data) ? (data.length / 60).toFixed(2) : null);
+      } catch (_) {}
+    };
+    fetchEps();
+    const t = setInterval(fetchEps, 15000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
