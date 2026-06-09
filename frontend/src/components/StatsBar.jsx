@@ -26,10 +26,10 @@ export default function StatsBar({ liveAlert, liveEvent }) {
       const counts = countsRes.data;
       const hosts = hostsRes.data;
       setStats({
-        total:     counts.TOTAL_24H    ?? 0,
-        critical:  counts.CRITICAL_24H ?? 0,
-        high:      counts.HIGH_24H     ?? 0,
-        medium:    counts.MEDIUM_24H   ?? 0,
+        total:     counts.TOTAL     ?? 0,
+        critical:  counts.CRITICAL  ?? 0,
+        high:      counts.HIGH      ?? 0,
+        medium:    counts.MEDIUM    ?? 0,
         hosts:     hosts.length,
         contained: hosts.filter((h) => h.is_contained).length,
       });
@@ -47,10 +47,10 @@ export default function StatsBar({ liveAlert, liveEvent }) {
 
   return (
     <div className="flex gap-4 mb-6 flex-wrap">
-      <StatCard label="Alerts (24h)"   value={stats.total}    color="text-white"       sub="last 24 hours" />
-      <StatCard label="Critical (24h)" value={stats.critical} color="text-red-400"     sub="immediate action" />
-      <StatCard label="High (24h)"    value={stats.high}     color="text-orange-400"  sub="investigate now" />
-      <StatCard label="Medium (24h)"  value={stats.medium}   color="text-yellow-400"  sub="monitor closely" />
+      <StatCard label="Active Alerts"  value={stats.total}    color="text-white"       sub="unacknowledged" />
+      <StatCard label="Critical"       value={stats.critical} color="text-red-400"     sub="immediate action" />
+      <StatCard label="High"           value={stats.high}     color="text-orange-400"  sub="investigate now" />
+      <StatCard label="Medium"         value={stats.medium}   color="text-yellow-400"  sub="monitor closely" />
       <StatCard label="Active Hosts"  value={stats.hosts}    color="text-indigo-400" />
       <StatCard
         label="Contained"
