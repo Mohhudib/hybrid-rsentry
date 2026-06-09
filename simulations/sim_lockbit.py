@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from simulations.sim_common import (
     ATTACKER_PID, ATTACKER_PPID, DefenseResult, Profile, Sandbox,
-    add_common_args, build_validation_engine, main_for, rand_ext,
+    add_common_args, build_validation_engine, main_for, rand_ext, _set_comm,
 )
 
 PROFILE = Profile(
@@ -162,5 +162,6 @@ if __name__ == "__main__":
     args, _ = ap.parse_known_args()
     if args.validate_defense:
         raise SystemExit(validate_defense(args.target))
+    _set_comm("lockbit-sim")
     print("[LOCKBIT5] (simulation) would self-delete and wipe free space post-encryption")
     raise SystemExit(main_for(PROFILE, ap))

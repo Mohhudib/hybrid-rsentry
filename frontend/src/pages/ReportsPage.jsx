@@ -67,7 +67,13 @@ async function fetchAlertsWithEvents(params) {
   return res.json();
 }
 
-// ─── PDF generation ─────────────────────────────────────────────────────
+// ─── Exports ────────────────────────────────────────────────────────────
+async function exportAsJSON(filterParams) {
+  const rich = await fetchAlertsWithEvents(filterParams);
+  const blob = new Blob([JSON.stringify(rich, null, 2)], { type: 'application/json' });
+  triggerDownload(blob, `rsentry_report_${Date.now()}.json`);
+}
+
 async function exportAsPDF(filterParams) {
   const rich = await fetchAlertsWithEvents(filterParams);
 
@@ -144,7 +150,7 @@ async function exportAsPDF(filterParams) {
   // Event type distribution (right)
   const evCounts = {};
   rich.forEach(a => {
-    const et = a.event?.event_type || 'UNKNOWN';
+    const et = a.event_type || 'UNKNOWN';
     evCounts[et] = (evCounts[et] || 0) + 1;
   });
   autoTable(doc, {
@@ -221,21 +227,20 @@ async function exportAsPDF(filterParams) {
     startY: 22,
     head: [['Time (UTC)', 'Sev', 'Event Type', 'Host', 'Process', 'File', 'Entr', 'Lineage', 'Combined', 'Canary', 'Status']],
     body: rich.map(a => {
-      const ev = a.event || {};
-      const score = ev.details?.combined_score;
-      const proc = ev.process_name && ev.process_name !== 'unknown'
-        ? `${ev.process_name}[${ev.pid}]` : '—';
+      const score = a.details?.combined_score;
+      const proc = a.process_name && a.process_name !== 'unknown'
+        ? `${a.process_name}[${a.pid}]` : '—';
       return [
         format(new Date(a.created_at), 'MM/dd HH:mm:ss'),
         a.severity,
-        EVENT_TYPE_LABEL[ev.event_type] || ev.event_type || '—',
+        EVENT_TYPE_LABEL[a.event_type] || a.event_type || '—',
         shortHost(a.host_id),
         proc,
-        truncatePath(ev.file_path, 38),
-        fmtNum(ev.entropy_delta, 2),
-        fmtNum(ev.lineage_score, 1),
+        truncatePath(a.file_path, 38),
+        fmtNum(a.entropy_delta, 2),
+        fmtNum(a.lineage_score, 1),
         fmtNum(score, 1),
-        ev.canary_hit ? 'YES' : '—',
+        a.canary_hit ? 'YES' : '—',
         a.acknowledged ? 'ACK' : 'PENDING',
       ];
     }),
@@ -269,8 +274,8 @@ async function exportAsPDF(filterParams) {
     let y = 24;
     const CARD_H = 60;   // bumped from 52 to fit extra metadata lines
     drill.forEach((a, idx) => {
-      const ev = a.event || {};
-      const d = ev.details || {};
+      const ev = a;
+      const d = a.details || {};
 
       if (y + CARD_H > H - 12) { doc.addPage(); y = 16; }
 
@@ -397,10 +402,6 @@ function triggerDownload(blob, filename) {
   }, 5000);
 }
 
-function exportAllAsJSON(alerts) {
-  const blob = new Blob([JSON.stringify(alerts, null, 2)], { type: 'application/json' });
-  triggerDownload(blob, `rsentry_report_${Date.now()}.json`);
-}
 
 // ─── Component ──────────────────────────────────────────────────────────
 export default function ReportsPage() {
@@ -409,6 +410,7 @@ export default function ReportsPage() {
   const [selected, setSelected] = useState(new Set());
   const [exporting, setExporting] = useState(null);
   const [pdfBuilding, setPdfBuilding] = useState(false);
+  const [jsonBuilding, setJsonBuilding] = useState(false);
   const [filterSev, setFilterSev] = useState('ALL');
   const [filterAck, setFilterAck] = useState('ALL');
   const [dateFrom, setDateFrom] = useState('');
@@ -442,21 +444,35 @@ export default function ReportsPage() {
     for (const id of [...selected]) await handleExportOne(id);
   };
 
+  const exportParams = {
+    severity: filterSev,
+    acknowledged: filterAck === 'ACKED' ? true : filterAck === 'PENDING' ? false : undefined,
+    ackLabel: filterAck,
+    dateFrom,
+    dateTo,
+  };
+
   const handleExportPDF = async () => {
     setPdfBuilding(true);
     try {
-      await exportAsPDF({
-        severity: filterSev,
-        acknowledged: filterAck === 'ACKED' ? true : filterAck === 'PENDING' ? false : undefined,
-        ackLabel: filterAck,
-        dateFrom,
-        dateTo,
-      });
+      await exportAsPDF(exportParams);
     } catch (err) {
       console.error(err);
       alert(`PDF export failed: ${err.message}`);
     } finally {
       setPdfBuilding(false);
+    }
+  };
+
+  const handleExportJSON = async () => {
+    setJsonBuilding(true);
+    try {
+      await exportAsJSON(exportParams);
+    } catch (err) {
+      console.error(err);
+      alert(`JSON export failed: ${err.message}`);
+    } finally {
+      setJsonBuilding(false);
     }
   };
 
@@ -504,9 +520,9 @@ export default function ReportsPage() {
             className="px-4 py-2 text-sm bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
             {pdfBuilding ? 'Building PDF…' : 'Export PDF'}
           </button>
-          <button onClick={() => exportAllAsJSON(filtered)}
-            className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors">
-            Export All as JSON
+          <button onClick={handleExportJSON} disabled={jsonBuilding}
+            className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
+            {jsonBuilding ? 'Building JSON…' : 'Export All as JSON'}
           </button>
         </div>
       </div>

@@ -36,6 +36,17 @@ def rand_ext(length: int) -> Callable[[], str]:
     return _fn
 
 
+def _set_comm(name: str) -> None:
+    """Set the kernel process comm (PR_SET_NAME) so eBPF sees a sim-specific name,
+    not 'python3', which is filtered from alerts by the monitor's IGNORE_COMMS."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(
+            15, name.encode()[:15], 0, 0, 0)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Corpus helpers
 # ---------------------------------------------------------------------------

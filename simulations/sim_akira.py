@@ -31,7 +31,7 @@ import os
 
 from simulations.sim_common import (
     ATTACKER_PID, ATTACKER_PPID, DefenseResult, Profile, Sandbox,
-    add_common_args, build_validation_engine, main_for,
+    add_common_args, build_validation_engine, main_for, _set_comm,
 )
 
 PROFILE = Profile(
@@ -137,4 +137,5 @@ if __name__ == "__main__":
     args, _ = ap.parse_known_args()
     if args.validate_defense:
         raise SystemExit(validate_defense(args.target))
+    _set_comm("akira-sim")
     raise SystemExit(main_for(PROFILE, ap))

@@ -59,8 +59,11 @@ COMBINED_HIGH       = 40.0
 
 IGNORE_COMMS = {
     "Xorg", "gnome-shell", "nautilus", "systemd", "dockerd", "containerd",
-    "redis-server", "postgres", "celery", "uvicorn", "python3",
+    "redis-server", "postgres", "celery", "uvicorn",
     "git", "cargo", "rsync", "make", "gcc", "cc1", "ld",
+    # Note: "python3" intentionally omitted — uvicorn/celery are listed explicitly,
+    # and simulation scripts set their own comm (lockbit-sim, akira-sim, qilin-sim)
+    # so mass renames from unknown Python scripts must still be detectable.
 }
 
 RANSOMWARE_EXTENSIONS = {
