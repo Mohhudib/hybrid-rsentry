@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { getEvents } from '../api/client';
 
 // ─── Tree builder ──────────────────────────────────────────────────────────
