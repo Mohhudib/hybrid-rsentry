@@ -17,4 +17,5 @@ export const MITRE = {
   PROCESS_ANOMALY:       [{ id: 'T1059', name: 'Command & Scripting Interpreter', tac: 'Execution' }],
   COMBINED_ALERT:        [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }, { id: 'T1485', name: 'Data Destruction', tac: 'Impact' }],
   CONTAINMENT_TRIGGERED: [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }],
+  RANSOMWARE_RENAME:     [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }],
 };
