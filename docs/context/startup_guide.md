@@ -51,11 +51,11 @@ Wait until: `celery@hostname ready.`
 
 ### Terminal 4 — Agent (file monitor)
 
-**eBPF sensor (default — requires kernel ≥ 6.19 and `lsm=bpf` boot param):**
+**eBPF sensor (default — requires kernel ≥ 6.19; `lsm=bpf` boot param is optional and enables inline blocking):**
 ```bash
 cd ~/hybrid-rsentry && set -a && source .env && set +a && sudo -E ~/hybrid-rsentry/venv/bin/python -m agent.monitor
 ```
-Wait until: `[ebpf] mode=enforce lsm=True …` then `[ebpf] BPF loaded.`
+Wait until: `[ebpf] BPF loaded.` (with `lsm=bpf`: `[ebpf] mode=enforce lsm=True …`; without it: `mode=sigstop`)
 
 **inotify fallback (any kernel, no BCC required):**
 ```bash
