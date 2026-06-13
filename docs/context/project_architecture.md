@@ -8,7 +8,7 @@
 
 A ransomware detection system for Linux endpoints combining multiple detection layers:
 
-- **Canary files** (`AAA_*.txt`) — bait files that trigger CRITICAL alert if touched or deleted
+- **Canary files** (`AAA_`/`aaa_`/`ZZZ_`/`zzz_` prefixes, `.txt`) — bait files that trigger CRITICAL alert if touched or deleted
 - **Shannon entropy delta** — detects file encryption activity via rolling window
 - **Markov chain repositioning** — moves canary files to predicted access hotspots
 - **Process lineage scoring** — scores suspicious process ancestry
