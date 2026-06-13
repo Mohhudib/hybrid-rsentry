@@ -172,7 +172,6 @@ docker exec -it rsentry_postgres psql -U rsentry -d rsentry_db \
 1. **WATCH_PATH must be outside `~/hybrid-rsentry`** — canary files (AAA_*.txt) corrupt git refs if placed inside the project.
 2. **Never run `docker compose down -v`** — the `-v` flag deletes the Postgres data volume permanently.
 3. **Never edit `.env.example` thinking it is `.env`** — real secrets live in `.env` (gitignored).
-4. **Never run `npm audit fix --force`** — installs `react-scripts@0.0.0` and breaks the entire frontend build.
 
 ---
 
