@@ -8,7 +8,6 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 CANARY_SUFFIX = ".txt"
-CANARY_CONTENT = "RSENTRY_CANARY_DO_NOT_MODIFY"
 CANARY_COUNT = int(os.getenv("CANARY_COUNT", "30"))
 
 # Feature 3: realistic decoy headers so ransomware that samples magic bytes /
