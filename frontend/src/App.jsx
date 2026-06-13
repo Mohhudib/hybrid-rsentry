@@ -13,6 +13,22 @@ const AI_EXPIRY_MS = 4 * 60 * 1000;
 const AI_PENDING_TIMEOUT_MS = 45 * 1000;
 const AI_TRIGGER_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM']);
 
+function _beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (_) {}
+}
+
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const [alertBadgeCount, setAlertBadgeCount] = useState(0);
@@ -33,7 +49,11 @@ export default function App() {
   const [latestAiResult, setLatestAiResult] = useState(null);
 
   const handleWsMessage = useCallback((msg) => {
-    if (msg.type === 'new_alert') { setLiveAlert(msg); setAlertBadgeCount(n => n + 1); }
+    if (msg.type === 'new_alert') {
+      setLiveAlert(msg);
+      setAlertBadgeCount(n => n + 1);
+      if (msg.severity === 'CRITICAL') _beep();
+    }
     if (msg.type === 'new_event') {
       setLiveEvent(msg);
       if (AI_TRIGGER_SEVERITIES.has(msg.severity)) {
