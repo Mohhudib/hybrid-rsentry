@@ -57,6 +57,21 @@ EBPF_WINDOW         = float(os.getenv("EBPF_WINDOW", "3.0"))
 COMBINED_CRITICAL   = 70.0
 COMBINED_HIGH       = 40.0
 
+
+def _resolve_mode(cli_mode: Optional[str]) -> str:
+    """
+    Resolve the sensor mode with explicit precedence:
+    CLI --mode flag > SENSOR_MODE env var > default ("enforce").
+
+    BUG 1 fix: argparse previously defaulted --mode to SENSOR_MODE and the
+    parsed value was never consumed, so only the env var ever took effect.
+    """
+    return cli_mode if cli_mode else SENSOR_MODE
+
+# SECURITY: never safelist scripting interpreters (python*, perl, bash, node…).
+# Ransomware frequently runs as `python3 -m ...`; safelisting the interpreter
+# comm suppresses every detection layer for it. R-Sentry's own python workers
+# (celery, uvicorn) are covered by their own comm names below.
 IGNORE_COMMS = {
     "Xorg", "gnome-shell", "nautilus", "systemd", "dockerd", "containerd",
     "redis-server", "postgres", "celery", "uvicorn",
@@ -155,20 +170,24 @@ def _make_emit_fn(agent_client) -> Callable[[dict], None]:
     return emit
 
 
-def _make_contain_fn(contain_fn, dry_run_fn, client) -> Callable[[int, str], None]:
+def _make_contain_fn(contain_fn, dry_run_fn, client) -> Callable[[int, str, str], None]:
     """
-    Adapter: monitor_ebpf calls contain(pid, comm);
+    Adapter: monitor_ebpf calls contain(pid, comm, layer);
     containment.contain() takes only pid.
+
+    layer names the detection layer that fired the containment
+    ("canary" | "rename" | "write_offset" | "entropy" | "execve") so each
+    SIGSTOP pipeline log line is attributable to its signal source.
     """
     _contained: set = set()
     _lock = threading.Lock()
 
-    def contain(pid: int, comm: str) -> None:
+    def contain(pid: int, comm: str, layer: str = "unknown") -> None:
         with _lock:
             if pid in _contained:
                 return
             _contained.add(pid)
-        logger.critical("SIGSTOP pipeline: pid=%d comm=%s", pid, comm)
+        logger.critical("SIGSTOP pipeline: pid=%d comm=%s layer=%s", pid, comm, layer)
         client.send_containment_triggered(
             pid=pid, process_name=comm,
             file_path="", lineage_score=0.0, entropy_delta=0.0,
@@ -409,10 +428,21 @@ class RsentryEventHandler:
 class Monitor:
     def __init__(self, watch_path: str = WATCH_PATH,
                  backend: str = SENSOR_BACKEND,
-                 auto_contain: bool = True):
+                 auto_contain: bool = True,
+                 mode: str = SENSOR_MODE,
+                 lsm: Optional[bool] = None):
+        """
+        mode: "enforce" | "audit" — passed through to the sensor (BUG 1 fix:
+              previously the module-level SENSOR_MODE env constant was used
+              unconditionally and the CLI flag was silently dropped).
+        lsm:  None = auto-detect kernel BPF-LSM support (default),
+              True/False = force on/off (BUG 4 fix: --lsm/--no-lsm).
+        """
         self.watch_path   = watch_path
         self.backend      = backend
         self.auto_contain = auto_contain
+        self.mode         = mode
+        self.lsm          = lsm
         self._stop_event  = threading.Event()
 
         from agent.client      import AgentClient
@@ -533,7 +563,7 @@ class Monitor:
         self._ebpf.IGNORE_COMMS.update(IGNORE_COMMS)
 
 
-        print(f"[monitor] backend=eBPF mode={SENSOR_MODE} "
+        print(f"[monitor] backend=eBPF mode={self.mode} "
               f"threshold={EBPF_THRESHOLD}/{EBPF_WINDOW}s "
               f"watch={self.watch_path}")
 
@@ -541,7 +571,8 @@ class Monitor:
             watch_dirs     = [self.watch_path],
             canary_paths   = self._canaries,
             host_id        = HOST_ID,
-            mode           = SENSOR_MODE,
+            mode           = self.mode,
+            lsm            = self.lsm,
             threshold      = EBPF_THRESHOLD,
             window_seconds = EBPF_WINDOW,
             emit           = self.emit_fn,
@@ -676,6 +707,11 @@ def _selftest() -> int:
     cfn(9999, "evil")
     cfn(9999, "evil")
     check("contain ran without error", True)
+    cfn(9998, "evil", "rename")
+    check("contain accepts layer arg", True)
+    import inspect as _ci
+    check("contain logs layer= field",
+          "layer=%s" in _ci.getsource(_make_contain_fn))
 
     print("seam: suppress_markov_move")
     from agent.adaptive import MarkovRepositioner
@@ -699,6 +735,32 @@ def _selftest() -> int:
     check("rsync present",  "rsync"  in IGNORE_COMMS)
     check("dockerd present","dockerd"in IGNORE_COMMS)
 
+    print("BUG 2 regression: scripting interpreters never safelisted")
+    check("python3 NOT in IGNORE_COMMS", "python3" not in IGNORE_COMMS)
+    check("no python* comm in IGNORE_COMMS",
+          not any(c.lower().startswith("python") for c in IGNORE_COMMS))
+    check("no python* comm in sensor IGNORE_COMMS",
+          not any(c.lower().startswith("python") for c in ebpf.IGNORE_COMMS))
+    eng_py = ebpf.DetectionEngine("t", ["/tmp"], velocity_threshold=2,
+                                  window_seconds=5.0, self_pid=1)
+    eng_py.observe_rename(88, 1, "python3",
+                          "/tmp/a.doc", "/tmp/a.q7w2e9r4t1y6", ts=1.0)
+    r_py = eng_py.observe_rename(88, 1, "python3",
+                                 "/tmp/b.doc", "/tmp/b.z3x8c5v0b2n7", ts=1.5)
+    check("comm=python3 ransomware rename burst alerts", r_py is not None)
+
+    print("BUG 1 regression: --mode CLI flag overrides env SENSOR_MODE")
+    check("CLI mode wins over env", _resolve_mode("audit") == "audit")
+    check("env/default used when flag absent", _resolve_mode(None) == SENSOR_MODE)
+    import inspect as _ins
+    _params = _ins.signature(Monitor.__init__).parameters
+    check("Monitor accepts mode param", "mode" in _params)
+    check("Monitor accepts lsm param (BUG 4)", "lsm" in _params)
+    _rsrc = _ins.getsource(Monitor._run_ebpf)
+    check("_run_ebpf consumes self.mode (not env constant)",
+          "self.mode" in _rsrc and "SENSOR_MODE" not in _rsrc)
+    check("_run_ebpf forwards lsm to sensor", "self.lsm" in _rsrc)
+
     print(f"\n{'='*50}\n{'ALL PASS' if not failures else str(failures)+' FAILED'}")
     return 1 if failures else 0
 
@@ -715,7 +777,15 @@ if __name__ == "__main__":
     )
     ap = argparse.ArgumentParser(description="Hybrid R-Sentry agent monitor")
     ap.add_argument("--backend",      choices=["inotify", "ebpf"], default=SENSOR_BACKEND)
-    ap.add_argument("--mode",         choices=["enforce", "audit"], default=SENSOR_MODE)
+    # default=None so we can distinguish "flag given" (overrides env) from
+    # "flag absent" (fall back to SENSOR_MODE env, then "enforce") — BUG 1 fix.
+    ap.add_argument("--mode",         choices=["enforce", "audit"], default=None)
+    # BUG 4 fix: tri-state LSM control. Absent = auto-detect kernel support;
+    # --lsm forces inline-LSM-deny; --no-lsm forces SIGSTOP-fallback.
+    ap.add_argument("--lsm",          action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="force BPF-LSM inline blocking on/off "
+                         "(default: auto-detect kernel support)")
     ap.add_argument("--watch",        default=WATCH_PATH)
     ap.add_argument("--selftest",     action="store_true")
     ap.add_argument("--run-sim",      default=None)
@@ -728,7 +798,8 @@ if __name__ == "__main__":
 
     _validate_watch_path(args.watch)
     m = Monitor(watch_path=args.watch, backend=args.backend,
-                auto_contain=not DRY_RUN)
+                auto_contain=not DRY_RUN,
+                mode=_resolve_mode(args.mode), lsm=args.lsm)
     if args.run_sim:
         m.set_sim(args.run_sim, args.sim_target, args.sim_traversal)
     m.start()

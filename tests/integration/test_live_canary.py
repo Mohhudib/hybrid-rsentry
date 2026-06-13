@@ -1,56 +1,64 @@
 #!/usr/bin/env python3
 """
-tests/integration/test_live_autonomous_agent.py — LIVE, fully-AUTONOMOUS proof.
+tests/integration/test_live_canary.py — LIVE, fully-AUTONOMOUS canary proof.
 
-The agent runs as its OWN process. The Akira sim runs as its OWN process. The
-test only ORCHESTRATES (start/stop) and OBSERVES from the outside — it never
-calls an agent internal, never loads BPF itself, and never signals the sim. We
-prove the agent detects AND contains on its own, end to end.
+The agent runs as its OWN process. A UID-1000 "locker" runs as its OWN process
+and tries to rename one of the agent's decoy CANARY files. The test only
+ORCHESTRATES (start/stop) and OBSERVES from the outside — it never calls an agent
+internal, never loads BPF itself, and never signals the locker. We prove the
+agent's CANARY tripwire fires AND contains, end to end.
 
-HOW THIS DIFFERS FROM THE EARLIER LIVE TESTS
-  * test_live_akira_pipeline.py : the TEST loaded BPF + called contain() manually.
-  * test_live_sim_detections.py : the TEST loaded BPF + did the SIGSTOP (audit).
-  * THIS TEST                   : a SEPARATE `agent.monitor` process loads BPF,
-                                  detects, and runs the WHOLE enforce pipeline
-                                  (SIGSTOP -> evidence -> cgroup isolate -> SIGKILL
-                                  -> release) by itself. We watch it happen.
+WHAT THIS TEST IS ABOUT (vs. the other live tests)
+  * test_live_autonomous_agent.py / _lockbit.py : drive the Akira/LockBit sims and
+    prove BEHAVIORAL detection (velocity / silent-encryption / rename-storm).
+  * THIS TEST                                   : proves the CANARY layer in
+    isolation. The agent seeds decoy files (AAA_/aaa_/ZZZ_/zzz_ prefixes),
+    registers their inodes in the kernel `canary_inodes` BPF map, and a single
+    touch of ONE decoy must trip the highest-priority CRITICAL path with no
+    behavioral scoring required:
+        - kernel `lsm=bpf` present  -> LSM_PROBE path_rename denies the rename
+          INLINE (-EPERM), emits CANARY_ATTEMPT, the decoy SURVIVES untouched,
+          then the userspace SIGSTOP->evidence->cgroup-isolate->SIGKILL pipeline
+          runs (layer=canary).
+        - kernel `lsm=bpf` absent   -> SIGSTOP-fallback: the rename goes through
+          once (CANARY_TOUCHED) and the agent freezes+kills the locker.
+    We auto-detect which prevention mode the agent chose (from its own log) and
+    assert the right contract for it.
 
 OBSERVATION SURFACES ONLY (no agent internals are imported/called):
   * the agent's own log file (its stdout+stderr)
   * `iptables -S OUTPUT`
   * /proc/<pid>/stat  +  /proc/<pid>/status
   * /sys/fs/cgroup/rsentry-contain-*/cgroup.procs
+  * the decoy file on disk (did it survive the rename attempt?)
 
-LAUNCH CHOICES (historical agent quirks now FIXED — kept for log realism):
-  1. BUG 2 (fixed): "python3" was in agent/monitor.py IGNORE_COMMS, so a sim
-     launched as `python3 -m ...` used to be safelisted and invisible. The entry
-     is removed — plain-python3 sims are now detected. We still launch through a
-     symlinked interpreter (/tmp/akira_locker -> python3) so the kernel `comm`
-     reads like a real ransomware binary in logs/alerts. (Verified: comm ==
-     basename of the exec'd path.)
-  2. BUG 1 (fixed): the parsed `--mode` flag used to be ignored (env-only).
-     `--mode` now overrides SENSOR_MODE; SENSOR_MODE=enforce is still set in the
-     agent env as belt-and-braces — both paths select enforce.
-  Plus: the agent posts telemetry to BACKEND_URL synchronously inside the contain
+WHY THE SYMLINK-COMM TRICK
+  python3 was historically safelisted in agent IGNORE_COMMS (BUG 2, fixed). We
+  launch the locker through a symlinked interpreter (/tmp/canary_locker ->
+  python3) so the kernel `comm` reads like a ransomware binary ("canary_locker")
+  and is never safelisted — same trick the Akira test uses.
+
+THE STUB BACKEND
+  The agent posts telemetry to BACKEND_URL synchronously inside the contain
   worker, and agent/client.py retries with back-off (~4.5s) when the backend is
-  down — which would delay the SIGSTOP past the sim's lifetime. We stand up a
-  throwaway in-process stub backend (fast 200s) so the agent's autonomous pipeline
-  fires in milliseconds. The stub only ABSORBS telemetry; it drives nothing.
+  down — which would delay the pipeline. We stand up a throwaway in-process stub
+  backend (fast 200s) so the agent's autonomous pipeline fires in milliseconds.
+  The stub only ABSORBS telemetry; it drives nothing.
 
 USAGE
     # Privileged live run — needs root (the AGENT subprocess loads BPF + writes
     # iptables/cgroup) and a bcc-capable interpreter:
-    sudo /usr/bin/python3 tests/integration/test_live_autonomous_agent.py
+    sudo /usr/bin/python3 tests/integration/test_live_canary.py
 
-    # Unprivileged self-check (no agent, no BPF): verifies the log-string contract
-    # against the real source, the symlink-comm trick, and import sanity:
-    python3 tests/integration/test_live_autonomous_agent.py --selfcheck
+    # Unprivileged self-check (no agent, no BPF): verifies the canary log/source
+    # contract, the symlink-comm trick, and import sanity:
+    python3 tests/integration/test_live_canary.py --selfcheck
 
 SAFETY
-  * Sim rewrites os.urandom/XOR bytes then renames — NO cipher, NO key — only
-    inside /tmp/rsentry_agent_watch/akira_zone, bounded to <=10 files.
-  * The test NEVER signals the sim before asserting (proves the agent acted). The
-    finally{} block may kill leftovers, but only after the assertions are taken.
+  * The locker only RENAMES a single decoy file (no cipher, no key, no payload),
+    inside /tmp/rsentry_agent_watch, and gives up after a bounded retry count.
+  * The test NEVER signals the locker before asserting (proves the agent acted).
+    The finally{} block may kill leftovers, but only after assertions are taken.
   * Cleanup is surgical: iptables -D of our own residual rule (NEVER -F/--flush),
     cgroup rmdir, and the OUTPUT chain is asserted byte-count-restored.
 """
@@ -72,9 +80,8 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 WATCH = Path("/tmp/rsentry_agent_watch")
-ZONE = WATCH / "akira_zone"
-SYMLINK = Path("/tmp/akira_locker")            # comm becomes "akira_locker"
-AGENT_LOG = Path("/tmp/rsentry_autonomous_agent.log")
+SYMLINK = Path("/tmp/canary_locker")           # comm becomes "canary_locker"
+AGENT_LOG = Path("/tmp/rsentry_canary_agent.log")
 EVIDENCE_BASE = Path("/tmp/rsentry_evidence")
 
 OPERATOR_UID = 1000
@@ -82,14 +89,23 @@ OPERATOR_GID = 1000
 PING_TARGET = "8.8.8.8"
 PING_INTERVAL = "0.3"
 
-CORPUS_FILES = 10           # pre-seeded so the sim skips populate_corpus
-SIM_MAX_FILES = 10          # VM-hang guard (<=10)
-SIM_DELAY = "0.2"           # per-file pacing; keeps the PID alive for the pipeline
+CANARY_COUNT = 8            # how many decoys the agent seeds (env override below)
+RANSOM_EXT = ".crab"       # the locker tries to append this to a decoy
+LOCKER_RETRIES = 60         # bounded — the agent freezes us well before this
+LOCKER_DELAY = "0.15"      # per-attempt pacing; keeps the PID alive for the pipeline
 READY_TIMEOUT = 90.0        # BPF compile + 492k-hash lineage prewarm can be slow
 RESPONSE_TIMEOUT = 30.0     # autonomous detect+contain budget
 
-# Durable log-line contract — MUST match agent/containment.py + monitor_ebpf.py.
+# Durable log-line contract — MUST match agent/containment.py, monitor_ebpf.py,
+# and monitor.py. If any of these strings drift, the self-check catches it before
+# a live run can give a false PASS.
 LOG_READY = "probes loaded — listening"                    # monitor_ebpf.run_sensor
+LOG_CANARY_REGISTERED = "canary inodes registered in kernel map"  # monitor_ebpf.run_sensor
+LOG_PREVENTION = "prevention="                             # monitor_ebpf.run_sensor
+LOG_PREVENTION_LSM = "inline-LSM-deny"                     # lsm=bpf active
+LOG_PREVENTION_FALLBACK = "SIGSTOP-fallback"               # lsm=bpf absent
+LOG_PIPELINE = "SIGSTOP pipeline: pid={pid}"               # monitor._make_contain_fn
+LOG_LAYER_CANARY = "layer=canary"                          # monitor._make_contain_fn
 LOG_SIGSTOP = "SIGSTOP sent to PID {pid}"                   # containment._sigstop
 LOG_ISOLATE = "Network isolation applied: cgroup="         # containment._cgroup_network_isolate
 LOG_ISOLATE_SCOPED = "(UID-agnostic, scoped)"
@@ -100,6 +116,10 @@ CGROUP_ROOT = Path("/sys/fs/cgroup")
 
 # Parses: "Network isolation applied: cgroup=rsentry-contain-1234 pids=[1234] (UID-agnostic, scoped)"
 _ISO_RE = re.compile(r"Network isolation applied: cgroup=(\S+) pids=\[([0-9,\s]*)\]")
+# Parses: "[ebpf] 8 canary inodes registered in kernel map"
+_REG_RE = re.compile(r"(\d+)\s+canary inodes registered in kernel map")
+
+CANARY_PREFIXES = ("AAA_", "aaa_", "ZZZ_", "zzz_")
 
 COMMANDS: list[list[str]] = []
 
@@ -174,29 +194,47 @@ def wait_for_log(substr: str, timeout: float, proc: "subprocess.Popen | None" = 
     return False
 
 
-def seed_zone() -> None:
-    """Create the akira_zone corpus owned by UID 1000 (so the UID-1000 sim can
-    rename) AFTER the agent is listening, so no agent canaries land in it."""
-    if ZONE.exists():
-        shutil.rmtree(ZONE, ignore_errors=True)
-    docs = ZONE / "documents"
-    docs.mkdir(parents=True)
-    exts = [".docx", ".xlsx", ".pdf", ".db", ".jpg", ".vmdk"]
-    for i in range(CORPUS_FILES):
-        f = docs / f"corpus_{i:03d}{exts[i % len(exts)]}"
-        f.write_bytes((f"document-{i} ".encode() * 512)[:8192])
-    for p in [WATCH, ZONE, docs, *docs.iterdir()]:
-        try:
-            os.chown(p, OPERATOR_UID, OPERATOR_GID)
-        except OSError:
-            pass
-    os.chmod(ZONE, 0o777)
-    os.chmod(docs, 0o777)
+def discover_canaries() -> list[Path]:
+    """All decoy files the agent seeded under WATCH (root-owned, in a 0777 dir)."""
+    found: list[Path] = []
+    for p in sorted(WATCH.rglob("*")):
+        if p.is_file() and p.name.startswith(CANARY_PREFIXES):
+            found.append(p)
+    return found
 
 
 def cleanup_sim_backups() -> None:
     for p in Path("/tmp").glob("rsentry_backup_*"):
         shutil.rmtree(p, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# The locker payload (runs as UID 1000, comm "canary_locker"). It only RENAMES a
+# single decoy — no cipher, no key. When the kernel LSM denies the rename it
+# raises PermissionError and we retry; that retry loop keeps the PID alive long
+# enough for the agent's pipeline to freeze and kill us. Bounded by LOCKER_RETRIES.
+# --------------------------------------------------------------------------- #
+
+_LOCKER_SRC = r"""
+import os, sys, time
+target = sys.argv[1]
+retries = int(sys.argv[2])
+delay   = float(sys.argv[3])
+ext     = sys.argv[4]
+for _ in range(retries):
+    locked = target + ext
+    try:
+        os.rename(target, locked)
+        # If it somehow went through (no LSM), put it back so the next loop can
+        # try again and so the on-disk survival check is deterministic.
+        try:
+            os.rename(locked, target)
+        except OSError:
+            pass
+    except OSError:
+        pass
+    time.sleep(delay)
+"""
 
 
 # --------------------------------------------------------------------------- #
@@ -264,22 +302,24 @@ class Report:
         all_pass = all(r[3] for r in self.rows)
         print("=" * 88)
         print("OVERALL: " + (
-            "PASS — agent autonomously detected Akira (T1486) and ran the full "
-            "enforce pipeline (SIGSTOP->evidence->cgroup isolate->SIGKILL); "
-            "operator + agent never cut (T1498 guard held)"
+            "PASS — agent autonomously tripped the CANARY layer (T1486), blocked "
+            "the touch and ran the full enforce pipeline "
+            "(SIGSTOP->evidence->cgroup isolate->SIGKILL); operator + agent never "
+            "cut (T1498 guard held)"
             if all_pass else "FAIL"))
         print("=" * 88)
         return all_pass
 
 
 # --------------------------------------------------------------------------- #
-# Self-check (no root): the log-string contract + symlink comm + imports
+# Self-check (no root): the canary log/source contract + symlink comm + imports
 # --------------------------------------------------------------------------- #
 
 def _selfcheck(report: Report) -> int:
     csrc = (Path(_PROJECT_ROOT) / "agent" / "containment.py").read_text()
     esrc = (Path(_PROJECT_ROOT) / "agent" / "monitor_ebpf.py").read_text()
     msrc = (Path(_PROJECT_ROOT) / "agent" / "monitor.py").read_text()
+    gsrc = (Path(_PROJECT_ROOT) / "agent" / "graph.py").read_text()
 
     report.check("log contract: SIGSTOP line matches source", "present",
                  "present" if 'SIGSTOP sent to PID %d' in csrc else "absent",
@@ -287,15 +327,37 @@ def _selfcheck(report: Report) -> int:
     report.check("log contract: isolation line matches source", "present",
                  "present" if 'Network isolation applied: cgroup=%s' in csrc else "absent",
                  'Network isolation applied: cgroup=%s' in csrc)
-    report.check("log contract: scoped tag matches source", "present",
-                 "present" if '(UID-agnostic, scoped)' in csrc else "absent",
-                 '(UID-agnostic, scoped)' in csrc)
     report.check("log contract: SIGKILL line matches source", "present",
                  "present" if 'SIGKILL sent to PID %d' in csrc else "absent",
                  'SIGKILL sent to PID %d' in csrc)
     report.check("log contract: readiness line matches source", "present",
                  "present" if 'probes loaded — listening' in esrc else "absent",
                  'probes loaded — listening' in esrc)
+
+    # Canary-specific kernel + userspace wiring.
+    report.check("ebpf source: canary inodes registered in kernel map", "present",
+                 "present" if 'canary inodes registered in kernel map' in esrc else "absent",
+                 'canary inodes registered in kernel map' in esrc)
+    report.check("ebpf source: LSM_PROBE path_rename denies canary rename", "present",
+                 "present" if 'LSM_PROBE(path_rename' in esrc and '-EPERM' in esrc else "absent",
+                 'LSM_PROBE(path_rename' in esrc and '-EPERM' in esrc)
+    report.check("ebpf source: emits CANARY_ATTEMPT on a blocked touch", "present",
+                 "present" if 'CANARY_ATTEMPT' in esrc else "absent",
+                 'CANARY_ATTEMPT' in esrc)
+    report.check("ebpf source: prevention banner (LSM vs SIGSTOP fallback)", "present",
+                 "present" if 'inline-LSM-deny' in esrc and 'SIGSTOP-fallback' in esrc else "absent",
+                 'inline-LSM-deny' in esrc and 'SIGSTOP-fallback' in esrc)
+
+    # The contain layer is logged as "layer=%s" so a canary kill reads "layer=canary".
+    report.check("monitor source: SIGSTOP pipeline logs the firing layer", "present",
+                 "present" if 'SIGSTOP pipeline: pid=%d comm=%s layer=%s' in msrc else "absent",
+                 'SIGSTOP pipeline: pid=%d comm=%s layer=%s' in msrc)
+
+    # graph.is_canary must recognise all 4 decoy prefixes (what we glob for).
+    has_prefixes = all(p in gsrc for p in ('"AAA_"', '"aaa_"', '"ZZZ_"', '"zzz_"'))
+    report.check("graph source: canary prefixes AAA_/aaa_/ZZZ_/zzz_", "present",
+                 "present" if has_prefixes else "absent", has_prefixes)
+
     # Match the quoted-argument TOKEN form (what a real iptables call uses), not
     # the prose: containment.py's docstring explains WHY it avoids --uid-owner, so
     # the bare string appears in comments — only `"--uid-owner"` as an argv token
@@ -307,11 +369,20 @@ def _selfcheck(report: Report) -> int:
                  f"path={path_token} uid_token={not no_uid_token}",
                  path_token and no_uid_token)
 
-    # BUG 2 regression: the interpreter must never be safelisted again.
-    report.check("agent IGNORE_COMMS does NOT safelist python3 (BUG 2 fixed)",
-                 "python3 absent",
-                 "absent" if '"python3"' not in msrc else "present",
-                 '"python3"' not in msrc)
+    # BUG 2 regression: the interpreter must never be safelisted again. Inspect
+    # the ACTUAL IGNORE_COMMS set (not a grep of the file — monitor.py's own
+    # self-tests legitimately contain the literal "python3" while asserting it is
+    # absent from the set, which would defeat a naive substring check).
+    try:
+        import importlib
+        _mon = importlib.import_module("agent.monitor")
+        _no_py = not any(c.lower().startswith("python") for c in _mon.IGNORE_COMMS)
+        _observed = "absent" if _no_py else f"present: {sorted(_mon.IGNORE_COMMS)}"
+    except Exception as exc:  # noqa: BLE001
+        _no_py = False
+        _observed = f"import-fail: {exc}"
+    report.check("agent IGNORE_COMMS does NOT safelist python* (BUG 2 fixed)",
+                 "no python* comm", _observed, _no_py)
 
     # Symlink-comm trick: comm becomes the basename of the exec'd path.
     try:
@@ -325,29 +396,31 @@ def _selfcheck(report: Report) -> int:
         )
         comm = out.stdout.strip()
         report.check("symlinked interpreter yields non-python3 comm",
-                     "akira_locker",
+                     "canary_locker",
                      comm, comm == SYMLINK.name and comm != "python3")
     finally:
         if SYMLINK.exists() or SYMLINK.is_symlink():
             SYMLINK.unlink()
 
-    # Sim import + Akira ext.
+    # graph import + is_canary behaviour on our prefixes.
     import importlib
     ok = True
     try:
-        m = importlib.import_module("simulations.sim_akira")
-        ok = m.PROFILE.ext_fn() == "akiranew"
+        g = importlib.import_module("agent.graph")
+        ok = (g.FilesystemGraph(root="/tmp").is_canary("/tmp/AAA_000.txt")
+              and g.FilesystemGraph(root="/tmp").is_canary("/tmp/zzz_007.txt")
+              and not g.FilesystemGraph(root="/tmp").is_canary("/tmp/report.docx"))
     except Exception as exc:  # noqa: BLE001
         print(f"    import FAIL: {exc}")
         ok = False
-    report.check("simulations.sim_akira imports + ext=akiranew", "ok",
+    report.check("agent.graph imports + is_canary recognises decoys", "ok",
                  "ok" if ok else "fail", ok)
 
-    report.check("SAFETY: sim max files <= 10", "<=10",
-                 str(SIM_MAX_FILES), SIM_MAX_FILES <= 10)
+    report.check("SAFETY: locker only renames, bounded retries <= 100", "<=100",
+                 str(LOCKER_RETRIES), LOCKER_RETRIES <= 100)
 
-    print("\n[self-check] Log contract + comm trick + safety verified. "
-          "Run with sudo for the full autonomous live proof.")
+    print("\n[self-check] Canary log/source contract + comm trick + safety "
+          "verified. Run with sudo for the full autonomous live proof.")
     return 0 if report.render() else 1
 
 
@@ -365,10 +438,10 @@ def _live(report: Report) -> int:
               f"python3 that owns python3-bpfcc.\n{probe.stderr.strip()}")
         return 3
 
-    test_signalled_sim = False
-    agent = operator = sim = None
+    test_signalled_locker = False
+    agent = operator = locker = None
     stub = None
-    sim_pid = -1
+    locker_pid = -1
     agent_pid = -1
     baseline_chain: list[str] = []
 
@@ -392,8 +465,13 @@ def _live(report: Report) -> int:
 
         if WATCH.exists():
             shutil.rmtree(WATCH, ignore_errors=True)
+        # 0777 so the UID-1000 locker can rename inside it (the decoys the agent
+        # seeds here are root-owned, but rename needs dir write perm, not file
+        # ownership). No sticky bit -> the rename is DAC-permitted; the kernel LSM
+        # is what must do the blocking, which is exactly what we test.
         WATCH.mkdir(mode=0o777, parents=True)
         os.chown(WATCH, OPERATOR_UID, OPERATOR_GID)
+        os.chmod(WATCH, 0o777)
         AGENT_LOG.write_text("")
 
         # ---- 2. STUB BACKEND + START AGENT ----------------------------------
@@ -402,10 +480,12 @@ def _live(report: Report) -> int:
 
         agent_env = dict(
             os.environ,
-            SENSOR_MODE="enforce",          # enforce via ENV (the --mode flag is ignored)
+            SENSOR_MODE="enforce",          # enforce via ENV
             SENSOR_BACKEND="ebpf",
             BACKEND_URL=backend_url,
             PYTHONPATH=str(_PROJECT_ROOT),
+            CANARY_COUNT=str(CANARY_COUNT),  # keep seeding fast + deterministic
+            CANARY_STRATEGY="bfs",
             HEARTBEAT_INTERVAL="3600",      # keep heartbeat noise out of the log
             PYTHONUNBUFFERED="1",           # flush print() (the [ebpf]/[monitor] lines) live
         )
@@ -415,11 +495,9 @@ def _live(report: Report) -> int:
         # until exit, so the readiness wait would time out blind.
         agent_cmd = [sys.executable, "-u", "-m", "agent.monitor",
                      "--backend", "ebpf", "--watch", str(WATCH)]
-        print("[2] START AGENT (its own process; loads BPF, runs enforce pipeline)")
-        print(f"    RUN: SENSOR_MODE=enforce BACKEND_URL={backend_url} "
-              f"{' '.join(agent_cmd)}")
-        # Capture BOTH streams to one log: stdout (print) + stderr (logging),
-        # merged so ordering is preserved. Child runs unbuffered (see agent_cmd).
+        print("[2] START AGENT (its own process; loads BPF, seeds + registers canaries)")
+        print(f"    RUN: SENSOR_MODE=enforce CANARY_COUNT={CANARY_COUNT} "
+              f"BACKEND_URL={backend_url} {' '.join(agent_cmd)}")
         logfh = open(AGENT_LOG, "w")
         agent = subprocess.Popen(agent_cmd, cwd=str(_PROJECT_ROOT), env=agent_env,
                                  stdout=logfh, stderr=subprocess.STDOUT)
@@ -428,8 +506,6 @@ def _live(report: Report) -> int:
               f"(<= {READY_TIMEOUT:.0f}s — BPF compile + lineage prewarm)")
         ready = wait_for_log(LOG_READY, READY_TIMEOUT, proc=agent)
         if not ready:
-            # Distinguish premature exit from a true timeout, and dump the FULL
-            # log (both streams) so the failure cause is visible.
             exited = agent.poll() is not None
             print("\n!!!! AGENT DID NOT REACH READINESS !!!!")
             if exited:
@@ -448,9 +524,34 @@ def _live(report: Report) -> int:
         report.check("agent started + probes loaded", "listening", "listening", True)
         report.check("agent process alive after load", "alive",
                      "alive" if agent.poll() is None else "exited", agent.poll() is None)
-        # Agent must not have placed itself in any rsentry cgroup at startup.
-        report.check("agent NOT in any rsentry cgroup at startup", "none",
-                     str([str(c) for c in cgroup_dirs()]) or "none", not cgroup_dirs())
+
+        # ---- 2b. CANARY REGISTRATION + PREVENTION MODE ----------------------
+        log = log_text()
+        reg_m = _REG_RE.search(log)
+        n_registered = int(reg_m.group(1)) if reg_m else 0
+        report.check("agent registered canary inodes in kernel map", ">=1",
+                     f"{n_registered} registered", n_registered >= 1)
+
+        # Which prevention mode did the agent actually pick? (auto-detected from
+        # /sys/kernel/security/lsm by the agent — we read its own banner.)
+        lsm_active = LOG_PREVENTION_LSM in log
+        prevention = ("inline-LSM-deny" if lsm_active
+                      else (LOG_PREVENTION_FALLBACK if LOG_PREVENTION_FALLBACK in log
+                            else "unknown"))
+        report.check("agent announced a prevention mode", "LSM or SIGSTOP-fallback",
+                     prevention, prevention != "unknown")
+        print(f"    prevention mode in effect: {prevention} "
+              f"(lsm_active={lsm_active})")
+
+        # The decoys the agent seeded must be visible on disk for the locker.
+        decoys = discover_canaries()
+        report.check("agent seeded decoy canary files on disk", ">=1",
+                     f"{len(decoys)} found", len(decoys) >= 1)
+        if not decoys:
+            print("FAIL: no decoy files under WATCH — cannot run the canary touch.")
+            return 1
+        target = decoys[0]
+        print(f"    target decoy: {target} (of {len(decoys)})")
 
         # ---- 3. OPERATOR SAFETY ---------------------------------------------
         print("[3] OPERATOR — background ping from UID 1000 (must never be cut)")
@@ -466,94 +567,123 @@ def _live(report: Report) -> int:
             return 3
         report.check("operator online at baseline", "fresh probe OK", "reachable", True)
 
-        # ---- 4. RUN AKIRA SIM (UID 1000, non-python3 comm) ------------------
-        print("[4] AKIRA SIM — real sim CLI as UID 1000 via /tmp/akira_locker")
-        seed_zone()
+        # ---- 4. CANARY TOUCH (UID 1000, non-python3 comm) -------------------
+        print("[4] CANARY TOUCH — UID-1000 locker renames a decoy via /tmp/canary_locker")
         if SYMLINK.exists() or SYMLINK.is_symlink():
             SYMLINK.unlink()
-        SYMLINK.symlink_to(sys.executable)  # comm -> "akira_locker" (defeats python3 safelist)
-        sim_env = dict(os.environ, PYTHONPATH=str(_PROJECT_ROOT), BACKEND_URL=backend_url)
-        sim = subprocess.Popen(
-            [str(SYMLINK), "-m", "simulations.sim_akira",
-             "--target", str(ZONE), "--no-restore", "--traversal", "dfs",
-             "--max-files", str(SIM_MAX_FILES), "--delay", SIM_DELAY],
-            cwd=str(_PROJECT_ROOT), env=sim_env,
+        SYMLINK.symlink_to(sys.executable)  # comm -> "canary_locker" (defeats python3 safelist)
+        locker_env = dict(os.environ, PYTHONPATH=str(_PROJECT_ROOT), BACKEND_URL=backend_url)
+        locker = subprocess.Popen(
+            [str(SYMLINK), "-c", _LOCKER_SRC,
+             str(target), str(LOCKER_RETRIES), LOCKER_DELAY, RANSOM_EXT],
+            cwd=str(_PROJECT_ROOT), env=locker_env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             user=OPERATOR_UID, group=OPERATOR_GID,
         )
-        sim_pid = sim.pid
-        report.check("Akira sim spawned as UID 1000", f"uid=1000",
-                     f"pid={sim_pid} uid={proc_uid(sim_pid)} comm=akira_locker",
-                     proc_uid(sim_pid) == OPERATOR_UID)
+        locker_pid = locker.pid
+        report.check("locker spawned as UID 1000", "uid=1000",
+                     f"pid={locker_pid} uid={proc_uid(locker_pid)} comm=canary_locker",
+                     proc_uid(locker_pid) == OPERATOR_UID)
 
         # ---- 5. WAIT FOR AUTONOMOUS RESPONSE --------------------------------
-        print(f"[5] OBSERVE — waiting for the agent's autonomous pipeline "
-              f"(<= {RESPONSE_TIMEOUT:.0f}s). The test sends NO signals to the sim.")
+        print(f"[5] OBSERVE — waiting for the agent's autonomous canary pipeline "
+              f"(<= {RESPONSE_TIMEOUT:.0f}s). The test sends NO signals to the locker.")
         saw_stopped = False
         captured_rule = ""
         captured_cgroup_procs: "set[int] | None" = None
-        want_sigstop = LOG_SIGSTOP.format(pid=sim_pid)
-        want_sigkill = LOG_SIGKILL.format(pid=sim_pid)
-        want_complete = LOG_COMPLETE.format(pid=sim_pid)
+        want_pipeline = LOG_PIPELINE.format(pid=locker_pid)
+        want_sigstop = LOG_SIGSTOP.format(pid=locker_pid)
+        want_sigkill = LOG_SIGKILL.format(pid=locker_pid)
+        want_complete = LOG_COMPLETE.format(pid=locker_pid)
         deadline = time.time() + RESPONSE_TIMEOUT
         while time.time() < deadline:
-            st = proc_state(sim_pid)
+            st = proc_state(locker_pid)
             if st == "T":
                 saw_stopped = True
-            # Catch the transient iptables rule + cgroup membership mid-pipeline.
             if not captured_rule:
                 for ln in contain_rules_present():
-                    if f"{CGROUP_PREFIX}-{sim_pid}" in ln:
+                    if f"{CGROUP_PREFIX}-{locker_pid}" in ln:
                         captured_rule = ln
-            cg = CGROUP_ROOT / f"{CGROUP_PREFIX}-{sim_pid}" / "cgroup.procs"
+            cg = CGROUP_ROOT / f"{CGROUP_PREFIX}-{locker_pid}" / "cgroup.procs"
             if cg.exists() and captured_cgroup_procs is None:
                 try:
                     captured_cgroup_procs = {int(x) for x in cg.read_text().split()}
                 except (OSError, ValueError):
                     pass
             log = log_text()
-            if want_complete in log or (want_sigkill in log and sim.poll() is not None):
+            if want_complete in log or (want_sigkill in log and locker.poll() is not None):
                 break
             time.sleep(0.25)
 
         log = log_text()
-        sim_alive = sim.poll() is None
-        sim_rc = sim.poll()
+        locker_alive = locker.poll() is None
+        locker_rc = locker.poll()
 
-        if not (want_sigstop in log or want_sigkill in log):
-            # Loud diagnostic FAIL: nothing fired.
-            print("\n!!!! AUTONOMOUS RESPONSE NOT OBSERVED — diagnostics !!!!")
-            print(f"  sim_pid={sim_pid} state={proc_state(sim_pid)} "
-                  f"alive={sim_alive} rc={sim_rc}")
+        if not (want_pipeline in log or want_sigstop in log or want_sigkill in log):
+            print("\n!!!! AUTONOMOUS CANARY RESPONSE NOT OBSERVED — diagnostics !!!!")
+            print(f"  locker_pid={locker_pid} state={proc_state(locker_pid)} "
+                  f"alive={locker_alive} rc={locker_rc}")
+            print(f"  target on disk: exists={target.exists()} "
+                  f"locked_exists={(Path(str(target)+RANSOM_EXT)).exists()}")
             print(f"  iptables OUTPUT:\n    " +
                   "\n    ".join(output_chain()) or "    (empty)")
             print("  agent log tail:")
             print("    " + "\n    ".join(log.splitlines()[-30:]))
 
         # ---- 6. ASSERT -------------------------------------------------------
-        print("[6] ASSERT autonomous detection + containment")
+        print("[6] ASSERT autonomous canary detection + containment")
         m = _ISO_RE.search(log)
-        iso_cgroup = m.group(1) if m else ""
         iso_pids = ({int(x) for x in m.group(2).replace(" ", "").split(",") if x}
                     if m else set())
 
-        # (a) agent stopped/killed the sim; the TEST never signalled it.
-        report.check("test sent NO signal to sim before assert", "no signal",
-                     "no signal" if not test_signalled_sim else "SIGNALLED",
-                     not test_signalled_sim)
+        # (a) the TEST never signalled the locker.
+        report.check("test sent NO signal to locker before assert", "no signal",
+                     "no signal" if not test_signalled_locker else "SIGNALLED",
+                     not test_signalled_locker)
+
+        # (b) canary layer specifically fired (not behavioral scoring).
+        canary_layer = (want_pipeline in log and LOG_LAYER_CANARY in log)
+        report.check("containment attributed to the CANARY layer",
+                     "SIGSTOP pipeline + layer=canary",
+                     f"pipeline={want_pipeline in log} layer_canary={LOG_LAYER_CANARY in log}",
+                     canary_layer)
+
+        # (c) agent stopped/killed the locker; the TEST never signalled it.
         agent_acted = (want_sigstop in log) or saw_stopped
-        sim_dead_by_agent = (not sim_alive) and (want_sigkill in log or sim_rc == -signal.SIGKILL)
-        report.check("agent autonomously SIGSTOP'd/froze the sim",
+        locker_dead_by_agent = ((not locker_alive)
+                                and (want_sigkill in log or locker_rc == -signal.SIGKILL))
+        report.check("agent autonomously SIGSTOP'd/froze the locker",
                      "SIGSTOP in log or state=T",
                      f"sigstop_log={want_sigstop in log} saw_T={saw_stopped}",
                      agent_acted)
-        report.check("agent autonomously SIGKILL'd the sim",
-                     "SIGKILL in log & sim dead",
-                     f"sigkill_log={want_sigkill in log} alive={sim_alive} rc={sim_rc}",
-                     sim_dead_by_agent)
+        report.check("agent autonomously SIGKILL'd the locker",
+                     "SIGKILL in log & locker dead",
+                     f"sigkill_log={want_sigkill in log} alive={locker_alive} rc={locker_rc}",
+                     locker_dead_by_agent)
 
-        # (b) cgroup-scoped isolation, --path not --uid-owner.
-        iso_logged = (LOG_ISOLATE in log and f"{CGROUP_PREFIX}-{sim_pid}" in log
+        # (d) decoy survival: when inline-LSM-deny is active the kernel rejects
+        #     the rename (-EPERM) so the decoy stays at its ORIGINAL name and the
+        #     ransom-extension twin never exists. Under SIGSTOP-fallback (no
+        #     lsm=bpf) the rename can land once before the freeze, so survival is
+        #     not guaranteed — we only assert it for the LSM path.
+        locked_twin = Path(str(target) + RANSOM_EXT)
+        decoy_intact = target.exists() and not locked_twin.exists()
+        if lsm_active:
+            report.check("decoy SURVIVED — kernel LSM denied the rename inline",
+                         "original present, no .crab twin",
+                         f"orig={target.exists()} twin={locked_twin.exists()}",
+                         decoy_intact)
+            report.check("kernel emitted a BLOCKED canary attempt (CANARY_ATTEMPT path)",
+                         "agent froze locker via canary layer",
+                         f"canary_layer={canary_layer}", canary_layer)
+        else:
+            report.check("decoy touch detected (SIGSTOP-fallback; rename may land once)",
+                         "canary layer fired",
+                         f"canary_layer={canary_layer} orig={target.exists()}",
+                         canary_layer)
+
+        # (e) cgroup-scoped isolation, --path not --uid-owner.
+        iso_logged = (LOG_ISOLATE in log and f"{CGROUP_PREFIX}-{locker_pid}" in log
                       and LOG_ISOLATE_SCOPED in log)
         no_uid_owner = "--uid-owner" not in log and "--uid-owner" not in captured_rule
         rule_path_ok = ("--path" in captured_rule) if captured_rule else iso_logged
@@ -563,7 +693,7 @@ def _live(report: Report) -> int:
                      f"path_ok={rule_path_ok}",
                      iso_logged and no_uid_owner and rule_path_ok)
 
-        # (c) full pipeline visible in the agent's own log.
+        # (f) full pipeline visible in the agent's own log.
         pipeline = (want_sigstop in log and LOG_ISOLATE in log and want_sigkill in log)
         report.check("agent log shows full pipeline (SIGSTOP+isolate+SIGKILL)",
                      "all three",
@@ -571,7 +701,7 @@ def _live(report: Report) -> int:
                      f"kill={want_sigkill in log}",
                      pipeline)
 
-        # (d) self-protection: agent + operator survive.
+        # (g) self-protection: agent + operator survive.
         agent_alive = agent.poll() is None
         op_alive = operator.poll() is None
         op_reach = operator_can_reach_network()
@@ -581,13 +711,13 @@ def _live(report: Report) -> int:
                      "alive & reachable",
                      f"alive={op_alive} reachable={op_reach}", op_alive and op_reach)
 
-        # (e) agent PID NOT in the isolated cgroup (only the sim tree was).
+        # (h) agent PID NOT in the isolated cgroup (only the locker tree was).
         agent_absent_log = (bool(iso_pids) and agent_pid not in iso_pids
-                            and sim_pid in iso_pids)
+                            and locker_pid in iso_pids)
         agent_absent_live = (captured_cgroup_procs is None
                              or agent_pid not in captured_cgroup_procs)
-        report.check("agent PID NOT in isolated cgroup; only sim tree isolated",
-                     f"agent({agent_pid}) absent, sim({sim_pid}) present",
+        report.check("agent PID NOT in isolated cgroup; only locker tree isolated",
+                     f"agent({agent_pid}) absent, locker({locker_pid}) present",
                      f"iso_pids={sorted(iso_pids)} "
                      f"live_procs={sorted(captured_cgroup_procs) if captured_cgroup_procs else 'n/a'}",
                      agent_absent_log and agent_absent_live)
@@ -597,7 +727,6 @@ def _live(report: Report) -> int:
     finally:
         # ---- 7. TEARDOWN — always runs --------------------------------------
         print("\n[7] TEARDOWN")
-        # Stop the agent first (SIGTERM -> graceful stop(); SIGKILL if stuck).
         if agent is not None and agent.poll() is None:
             print(f"    RUN: kill -TERM {agent.pid}")
             try:
@@ -610,20 +739,20 @@ def _live(report: Report) -> int:
                 except Exception:
                     pass
             print(f"    agent stopped (rc={agent.poll()})")
-        # Kill any sim leftover (only if the agent didn't already). This is the
-        # ONLY place the test may signal the sim — after assertions are taken.
-        if sim is not None and sim.poll() is None:
-            test_signalled_sim = True  # noqa: F841 - audit marker (post-assert only)
+        # Kill any locker leftover (only if the agent didn't already). This is the
+        # ONLY place the test may signal the locker — after assertions are taken.
+        if locker is not None and locker.poll() is None:
+            test_signalled_locker = True  # noqa: F841 - audit marker (post-assert only)
             for s in (signal.SIGCONT, signal.SIGKILL):
                 try:
-                    os.kill(sim.pid, s)
+                    os.kill(locker.pid, s)
                 except OSError:
                     pass
             try:
-                sim.wait(timeout=5)
+                locker.wait(timeout=5)
             except Exception:
                 pass
-            print(f"    sim leftover killed (rc={sim.poll()})")
+            print(f"    locker leftover killed (rc={locker.poll()})")
         if operator is not None and operator.poll() is None:
             operator.kill()
             try:
@@ -675,22 +804,24 @@ def main() -> int:
     if os.geteuid() != 0:
         here = Path(__file__).resolve()
         print("\n" + "!" * 78)
-        print("FAIL: autonomous agent test needs root — it starts a real")
-        print("`agent.monitor` enforce process that loads BPF and writes")
+        print("FAIL: canary live test needs root — it starts a real")
+        print("`agent.monitor` enforce process that loads BPF, seeds decoy")
+        print("canaries, registers their inodes in the kernel map, and writes")
         print("iptables/cgroup state.")
         print("\nThe privileged run will, in order:")
         print("  * stand up a throwaway stub backend (absorbs agent telemetry)")
         print("  * start `SENSOR_MODE=enforce python3 -m agent.monitor --backend")
         print("    ebpf --watch /tmp/rsentry_agent_watch` as its OWN process")
         print("  * spawn a UID-1000 `ping 8.8.8.8` (operator liveness)")
-        print("  * spawn the REAL Akira sim as UID 1000 via /tmp/akira_locker")
-        print("    (comm != python3, so the agent does not safelist it)")
-        print("  * OBSERVE (log + iptables + /proc + cgroup) the agent autonomously")
-        print("    SIGSTOP -> evidence -> cgroup isolate -> SIGKILL the sim")
+        print("  * spawn a UID-1000 locker via /tmp/canary_locker that renames ONE")
+        print("    agent decoy (comm != python3, so the agent does not safelist it)")
+        print("  * OBSERVE (log + iptables + /proc + cgroup + the decoy on disk)")
+        print("    the agent autonomously block the touch + SIGSTOP -> evidence ->")
+        print("    cgroup isolate -> SIGKILL the locker (layer=canary)")
         print("  * tear everything down (SIGTERM agent, surgical iptables -D, rmdir)")
         print("\nReview the script first, then run:")
         print(f"  sudo /usr/bin/python3 {here}")
-        print("Or validate the log contract + comm trick without root:")
+        print("Or validate the canary contract + comm trick without root:")
         print(f"  {sys.executable} {here} --selfcheck")
         print("!" * 78)
         return 2

@@ -45,6 +45,10 @@ IGNORE_COMMS: Set[str] = {
     "redis-server", "postgres", "celery", "uvicorn",
     "git", "cargo", "rsync", "make", "gcc", "cc1", "ld", "NetworkManager", "nm-dispatcher", "StreamTrans",
     "runc", "containerd", "containerd-shi", "dockerd", "docker",
+    # TODO(security review): browsers are user-space apps, not system daemons —
+    # comm is attacker-controllable (prctl/argv0), so malware can masquerade as
+    # "firefox" to bypass detection. Kept for now as documented FP sources
+    # (cache churn); consider replacing with exe-path/lineage-based exemption.
     "x-www-browser", "firefox", "firefox-esr", "chrome", "chromium",
     "dpkg", "apt", "apt-get",
     "Cache2 I/O", "glean.dispatch",  # BPF comm is 15 chars; "glean.dispatche" was truncated
@@ -602,29 +606,6 @@ class DetectionEngine:
             },
         )
 
-    def observe_kernel_burst(
-        self,
-        pid: int,
-        ppid: int,
-        comm: str,
-        count: int,
-        ts: float,
-    ) -> Optional[dict]:
-        """Called when the in-kernel velocity counter fires."""
-        if pid == self.self_pid:
-            return None
-        if comm in self.ignore_comms:
-            return None
-        self._active_pids.add(pid)
-        return self._make_event(
-            "PROCESS_ANOMALY", "HIGH", pid, ppid, comm,
-            "", "", ts,
-            extra={
-                "decided_in": "kernel",
-                "kernel_burst_count": count,
-            },
-        )
-
 
 # ---------------------------------------------------------------------------
 # Canary seeding
@@ -694,7 +675,30 @@ def build_bpf(enforce: bool = True, lsm: bool = False) -> str:
     _block_on_write_score = (
         "u8 blk = 1; if (p->score >= SCORE_BLOCK) { blocked_pids.update(&pid, &blk); }"
     ) if (enforce and lsm) else ""
+    # W1/BUG 3: arming on a canary write happens in enforce mode regardless of
+    # LSM availability — the SIGSTOP fallback needs the PID frozen too.
+    _block_on_canary_write = (
+        "u8 _cone = 1; blocked_pids.update(&pid, &_cone);"
+    ) if enforce else ""
     _lsm_hook = "" if not (enforce and lsm) else """
+// BUG 3 fix: submit the canary attempt to userspace BEFORE the -EPERM deny so
+// the agent can log CANARY_ATTEMPT, arm containment and send telemetry. The
+// deny itself is unchanged — callers still return -EPERM after this runs.
+static inline void __emit_canary_attempt(void *ctx, u32 pid, u64 inode, u8 op) {
+    struct canary_event_t cev = {};
+    cev.pid = pid; cev.inode = inode; cev.op = op; cev.blocked = 1;
+    cev.ts = bpf_ktime_get_ns();
+    // VERIFIER FIX: bpf_get_current_task() returns an UNTYPED scalar on strict
+    // verifiers (kernel 6.x), so dereferencing real_parent->tgid at a fixed
+    // offset is rejected ("R0 invalid mem access 'scalar'"). ppid is purely
+    // informational here — containment decisions never use it — so we set it to
+    // 0 in the LSM hook rather than walk the task struct. Userspace
+    // _handle_canary() already tolerates ppid=0.
+    cev.ppid = 0;
+    bpf_get_current_comm(&cev.comm, sizeof(cev.comm));
+    canary_events.perf_submit(ctx, &cev, sizeof(cev));
+}
+
 LSM_PROBE(path_rename,
           const struct path *old_dir, struct dentry *old_dentry,
           const struct path *new_dir, struct dentry *new_dentry) {
@@ -708,11 +712,29 @@ LSM_PROBE(path_rename,
         u8 *is_canary = canary_inodes.lookup(&inode);
         if (is_canary) {
             u8 one = 1;
+            __emit_canary_attempt(ctx, pid, inode, 1);  // BUG 3: notify first
             blocked_pids.update(&pid, &one);
             return -EPERM;
         }
     }
     return 0;
+}
+
+// BUG 3 fix (write side): deny WRITES to canary inodes inline. Previously only
+// renames were LSM-protected — a direct open()+write() on a canary file went
+// through and was only noticed after the fact (if at all). MAY_WRITE-gated so
+// reads (backup tools, indexers) are unaffected; one map lookup on the hot path.
+LSM_PROBE(file_permission, struct file *file, int mask) {
+    if (!file || !file->f_inode) return 0;
+    if (!(mask & MAY_WRITE)) return 0;
+    u64 inode = file->f_inode->i_ino;
+    u8 *is_canary = canary_inodes.lookup(&inode);
+    if (!is_canary) return 0;
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    __emit_canary_attempt(ctx, pid, inode, 2);          // BUG 3: notify first
+    u8 one = 1;
+    blocked_pids.update(&pid, &one);
+    return -EPERM;
 }
 
 // Feature 4: deny exec() for any PID armed in blocked_pids (e.g. a ransomware
@@ -853,6 +875,11 @@ BPF_PERF_OUTPUT(rename_events);
 BPF_PERF_OUTPUT(write_events);
 BPF_PERF_OUTPUT(behavior_events);
 BPF_PERF_OUTPUT(exec_events);
+// BUG 3 fix: canary touch/attempt events. The LSM hooks perf_submit here
+// BEFORE issuing their deny so userspace always learns an attempt happened;
+// kprobe__vfs_write also submits here on any canary-inode write (W1) so the
+// SIGSTOP-fallback path (lsm=False) sees single canary writes too.
+BPF_PERF_OUTPUT(canary_events);
 
 #define VELOCITY_THRESHOLD   3
 #define SIGKILL              9
@@ -886,6 +913,13 @@ struct behavior_event_t {{
 struct exec_event_t {{
     u32 pid; u32 ppid; char comm[16]; u64 ts;
     char arg[64];
+}};
+// op: 1 = rename touching a canary, 2 = write to a canary inode.
+// blocked: 1 = the kernel denied the operation inline (LSM deny),
+//          0 = the operation went through (SIGSTOP-fallback path).
+struct canary_event_t {{
+    u32 pid; u32 ppid; char comm[16];
+    u64 inode; u64 ts; u8 op; u8 blocked;
 }};
 
 // Feature 5: per-PID per-CPU rate limiter (inserted top-level).
@@ -1030,6 +1064,29 @@ int kprobe__vfs_write(struct pt_regs *ctx, struct file *file) {{
     bpf_probe_read_kernel(&_off, sizeof(_off), (void *)PT_REGS_PARM4(ctx));
     u64 _cur = (u64)_off;
     u64 _len = (u64)PT_REGS_PARM3(ctx);
+
+    // ── W1 (wiring fix): canary-inode write → ALWAYS reaches userspace ─────
+    // Before this check existed, write_events only fired on a >=50-write burst,
+    // so a single write to a canary file never left the kernel and the canary
+    // write layer was blind in live operation. This runs BEFORE the rate
+    // limiter and the post-freeze throttle: a canary touch is the single
+    // highest-confidence signal (MITRE T1486) and must never be dropped.
+    // blocked=0 here — under BPF-LSM the file_permission hook denies the write
+    // and submits its own blocked=1 event; this kprobe fires at vfs_write
+    // entry either way and userspace dedupes per PID.
+    u8 *_is_canary_w = canary_inodes.lookup(&_ino);
+    if (_is_canary_w) {{
+        struct canary_event_t cev = {{0}};
+        cev.pid = pid; cev.inode = _ino; cev.op = 2; cev.blocked = 0;
+        cev.ts = ts;
+        struct task_struct *_task_c = (struct task_struct *)bpf_get_current_task();
+        cev.ppid = (_task_c && _task_c->real_parent) ? _task_c->real_parent->tgid : 0;
+        bpf_get_current_comm(&cev.comm, sizeof(cev.comm));
+        canary_events.perf_submit(ctx, &cev, sizeof(cev));
+        {_block_on_canary_write}
+        return 0;
+    }}
+
     u8 silent_enc = 0;
     // Was this PID already frozen by an EARLIER detection? Capture it before the
     // counter runs. If so, the cheap counting below still proceeds (cheap, host-
@@ -1165,16 +1222,22 @@ def run_sensor(
     threshold: int = 2,
     window_seconds: float = 3.0,
     emit: Optional[Callable[[dict], None]] = None,
-    contain: Optional[Callable[[int, str], None]] = None,
+    contain: Optional[Callable[[int, str, str], None]] = None,
     sim_fn: Optional[Callable] = None,
     lineage_fn: Optional[Callable[[int], float]] = None,
     entropy_fn: Optional[Callable[[str], float]] = None,
     stop_event = None,
+    lsm: Optional[bool] = None,
 ) -> None:
     """
     Load BPF probes and run the detection loop.
     Requires: root, bpfcc-tools, python3-bpfcc, linux-headers.
-    Falls back to SIGSTOP if lsm=bpf not active.
+
+    contain: callback (pid, comm, layer) — layer names the detection layer
+             that fired ("canary"|"rename"|"write_offset"|"entropy"|"execve").
+    lsm:     BUG 4 fix — None = auto-detect kernel BPF-LSM support (default);
+             True = force inline-LSM-deny (downgraded with a warning if the
+             kernel lacks lsm=bpf); False = force SIGSTOP-fallback.
     """
     try:
         import sys as _sys
@@ -1185,7 +1248,15 @@ def run_sensor(
                  "Run: sudo apt install python3-bpfcc bpfcc-tools")
 
     _lsm_path = Path("/sys/kernel/security/lsm")
-    lsm_active = "bpf" in _lsm_path.read_text() if _lsm_path.exists() else False
+    _lsm_kernel = "bpf" in _lsm_path.read_text() if _lsm_path.exists() else False
+    if lsm is None:
+        lsm_active = _lsm_kernel
+    elif lsm and not _lsm_kernel:
+        print("[ebpf] WARNING: --lsm requested but kernel lacks lsm=bpf "
+              "(check /sys/kernel/security/lsm) — falling back to SIGSTOP")
+        lsm_active = False
+    else:
+        lsm_active = lsm
     enforce    = (mode == "enforce")
 
     print(f"[ebpf] mode={mode} lsm={lsm_active} "
@@ -1216,8 +1287,11 @@ def run_sensor(
     src = build_bpf(enforce=enforce, lsm=lsm_active)
     b   = BPF(text=src)
 
-    # Register canary inodes in BPF map AFTER BPF load
-    if enforce and lsm_active and canary_paths:
+    # Register canary inodes in BPF map AFTER BPF load. Registered in EVERY
+    # mode (W1 fix — previously enforce+lsm only): kprobe__vfs_write consults
+    # this map to surface single canary writes, which audit/SIGSTOP-fallback
+    # modes need just as much as the LSM deny path.
+    if canary_paths:
         _registered = 0
         for _cp in canary_paths:
             try:
@@ -1227,7 +1301,7 @@ def run_sensor(
                 _registered += 1
             except Exception:
                 pass
-        print(f"[ebpf] {_registered} canary inodes registered in LSM map")
+        print(f"[ebpf] {_registered} canary inodes registered in kernel map")
 
     # ── Feature 6: fail-secure heartbeat ──────────────────────────────────
     # The LSM hooks deny renames/execs if the heartbeat goes stale (>2s),
@@ -1256,10 +1330,12 @@ def run_sensor(
     _hb_thr.Thread(target=_heartbeat_writer, daemon=True).start()
 
     _emit    = emit    or (lambda e: print(e))
-    _contain = contain or (lambda pid, comm: os.kill(pid, 19))  # SIGSTOP
+    _contain = contain or (lambda pid, comm, layer="unknown": os.kill(pid, 19))  # SIGSTOP
 
     import threading as _ct
     import queue as _cq
+    # Queue items are (pid, comm, layer) — layer names the detection layer
+    # that fired so the SIGSTOP pipeline log line can attribute the kill.
     _contain_q: _cq.Queue = _cq.Queue()
     def _contain_worker():
         while True:
@@ -1267,7 +1343,7 @@ def run_sensor(
             if item is None:
                 break
             try:
-                _contain(item[0], item[1])
+                _contain(item[0], item[1], item[2] if len(item) > 2 else "unknown")
             except Exception:
                 pass
             _contain_q.task_done()
@@ -1295,7 +1371,13 @@ def run_sensor(
                     event["lineage_score"] = _lineage_cache[pid]
                 if engine.entropy_fn and dst_path:
                     event["entropy_delta"] = round(float(engine.entropy_fn(dst_path)), 4)
-                if event["event_type"] != "CANARY_TOUCHED":
+                # W4 (wiring fix): recompute severity from lineage/entropy ONLY
+                # for score-based PROCESS_ANOMALY events. Event types with
+                # intrinsic severity (CANARY_TOUCHED/CANARY_ATTEMPT CRITICAL,
+                # BACKUP_DESTRUCTION CRITICAL, SILENT_ENCRYPTION HIGH) were
+                # being silently downgraded here when the attacker had a clean
+                # lineage and low file entropy.
+                if event["event_type"] == "PROCESS_ANOMALY":
                     event["severity"] = engine._severity(
                         event.get("canary_hit", False),
                         event["lineage_score"],
@@ -1333,14 +1415,14 @@ def run_sensor(
                         _os.kill(pid, 19)
                     except OSError:
                         pass
-                    _contain_q.put_nowait((pid, comm))
+                    _contain_q.put_nowait((pid, comm, "canary"))
                 else:
                     # Velocity burst: arm in BPF map + SIGSTOP
                     try:
                         b["blocked_pids"][b["blocked_pids"].Key(pid)] =                             b["blocked_pids"].Leaf(1)
                     except Exception:
                         pass
-                    _contain_q.put_nowait((pid, comm))
+                    _contain_q.put_nowait((pid, comm, "rename"))
             # ── ASYNC PATH: enrich then emit (non-blocking) ───────────
             try:
                 _score_q.put_nowait((event, pid, newname))
@@ -1397,7 +1479,7 @@ def run_sensor(
                     b["blocked_pids"][b["blocked_pids"].Key(pid)] = b["blocked_pids"].Leaf(1)
                 except Exception:
                     pass
-                _contain_q.put_nowait((pid, comm))
+                _contain_q.put_nowait((pid, comm, "write_offset"))
             try:
                 _score_q.put_nowait((sevt, pid, path))
             except Exception:
@@ -1412,6 +1494,14 @@ def run_sensor(
                     b["blocked_pids"][b["blocked_pids"].Key(pid)] =                         b["blocked_pids"].Leaf(1)
                 except Exception:
                     pass
+                # W2 (wiring fix): this branch armed the BPF map but never
+                # queued containment — no SIGSTOP pipeline, no telemetry.
+                # Same pattern as the kernel silent_enc branch above.
+                _contain_q.put_nowait((
+                    pid, comm,
+                    "canary" if event.get("event_type") == "CANARY_TOUCHED"
+                    else "write_offset",
+                ))
             try:
                 _score_q.put_nowait((event, pid, path))
             except Exception:
@@ -1467,7 +1557,7 @@ def run_sensor(
                         b["blocked_pids"][b["blocked_pids"].Key(pid)] = b["blocked_pids"].Leaf(1)
                     except Exception:
                         pass
-                    _contain_q.put_nowait((pid, comm))
+                    _contain_q.put_nowait((pid, comm, "entropy"))
     b["behavior_events"].open_perf_buffer(_handle_behavior, page_cnt=256)
 
     def _handle_exec(cpu, data, size):
@@ -1504,12 +1594,71 @@ def run_sensor(
                 b["blocked_pids"][b["blocked_pids"].Key(ppid)] = b["blocked_pids"].Leaf(1)
             except Exception:
                 pass
-            _contain_q.put_nowait((ppid, comm))
+            _contain_q.put_nowait((ppid, comm, "execve"))
         try:
             _score_q.put_nowait((event, ppid, ""))
         except Exception:
             _emit(event)
     b["exec_events"].open_perf_buffer(_handle_exec, page_cnt=64)
+
+    # ── BUG 3: canary attempt handler ──────────────────────────────────────
+    # Receives canary_event_t from BOTH kernel sources: the LSM hooks (op=1
+    # rename / op=2 write, blocked=1 — the kernel denied the operation inline)
+    # and kprobe__vfs_write (op=2, blocked=0 — SIGSTOP-fallback path, or the
+    # vfs_write entry that precedes an LSM deny). Emits CANARY_ATTEMPT when the
+    # kernel blocked the op, CANARY_TOUCHED when it went through, and arms
+    # containment either way — the process tried once and will try again.
+    _canary_path_by_inode: Dict[int, str] = {}
+    for _cp in canary_paths:
+        try:
+            _canary_path_by_inode[os.stat(_cp).st_ino] = os.path.normpath(_cp)
+        except OSError:
+            pass
+    _canary_last_seen: Dict[int, float] = {}
+
+    def _handle_canary(cpu, data, size):
+        ev   = b["canary_events"].event(data)
+        pid  = ev.pid
+        comm = ev.comm.decode(errors="replace").rstrip("\x00")
+        ts   = time.time()
+        # Safelist gate first — same contract as every other handler.
+        if pid == engine.self_pid or comm in engine.ignore_comms:
+            return
+        # Dedupe: one attempt can surface twice (vfs_write kprobe + LSM deny),
+        # and a retry loop would flood otherwise. 2s per PID matches the
+        # engine's alert cooldown.
+        last = _canary_last_seen.get(pid)
+        if last is not None and ts - last < 2.0:
+            return
+        _canary_last_seen[pid] = ts
+
+        blocked = bool(getattr(ev, "blocked", 0))
+        path    = _canary_path_by_inode.get(ev.inode, "")
+        event   = engine._make_event(
+            "CANARY_ATTEMPT" if blocked else "CANARY_TOUCHED",
+            "CRITICAL", pid, ev.ppid, comm, path, path, ts,
+            extra={
+                "trigger":     "canary_write" if ev.op == 2 else "canary_rename",
+                "inode":       ev.inode,
+                "lsm_blocked": blocked,
+                "decided_in":  "kernel",
+                "mitre":       "T1486",   # Data Encrypted for Impact (attempt)
+            },
+        )
+        event["canary_hit"] = True
+        engine._active_pids.add(pid)
+        if enforce and pid > 0:
+            try:
+                b["blocked_pids"][b["blocked_pids"].Key(pid)] = b["blocked_pids"].Leaf(1)
+            except Exception:
+                pass
+            _contain_q.put_nowait((pid, comm, "canary"))
+        try:
+            _score_q.put_nowait((event, pid, path))
+        except Exception:
+            _emit(event)
+
+    b["canary_events"].open_perf_buffer(_handle_canary, page_cnt=64)
     print("[ebpf] probes loaded — listening...")
 
     # Warm up
@@ -1597,15 +1746,6 @@ def _selftest() -> int:
     finally:
         shutil.rmtree(td2, ignore_errors=True)
 
-    # ── kernel burst event ───────────────────────────────────────────
-    print("kernel-decided burst event")
-    eng5 = DetectionEngine("t", ["/tmp"], self_pid=1)
-    kb = eng5.observe_kernel_burst(55, 1, "evil", 3, ts=1.0)
-    check("kernel burst schema valid", kb is not None)
-    check("kernel burst arms active_pids", 55 in eng5._active_pids)
-    check("kernel burst decided_in=kernel",
-          kb is not None and kb["details"].get("decided_in") == "kernel")
-
     # ── family profiling ─────────────────────────────────────────────
     print("family profiling")
     eng6 = DetectionEngine("t", ["/tmp"], self_pid=1)
@@ -1634,6 +1774,30 @@ def _selftest() -> int:
     r3 = eng9.observe_rename(42, 1, "adaptive",
                              "/tmp/AAA_c.txt", "/tmp/sub/AAA_c.txt", ts=1.0)
     check("Markov self-move suppressed", r3 is None)
+
+    # ── BUG 2 regression: scripting interpreters must never be safelisted ──
+    # `python3` in IGNORE_COMMS suppressed every detection layer for any
+    # ransomware launched as `python3 -m ...` (live-confirmed with sim_akira/
+    # sim_qilin/sim_lockbit). Celery/uvicorn workers have their own comms.
+    print("BUG 2 regression: python3 never safelisted")
+    check("no python* comm in IGNORE_COMMS",
+          not any(c.lower().startswith("python") for c in IGNORE_COMMS))
+    eng_py = DetectionEngine("t", ["/tmp"], velocity_threshold=2,
+                             window_seconds=5.0, self_pid=1)
+    eng_py.observe_rename(88, 1, "python3",
+                          "/tmp/a.doc", "/tmp/a.q7w2e9r4t1y6", ts=1.0)
+    r_py = eng_py.observe_rename(88, 1, "python3",
+                                 "/tmp/b.doc", "/tmp/b.z3x8c5v0b2n7", ts=1.5)
+    check("comm=python3 rename burst alerts", r_py is not None)
+    rw_py = None
+    eng_pw = DetectionEngine("t", ["/tmp"], self_pid=1)
+    eng_pw.observe_write_offset(89, 1, "python3", 9, 0, 4096, "/tmp/g.dat", ts=0.0)
+    for i in range(1, 8):
+        rw_py = eng_pw.observe_write_offset(89, 1, "python3", 9, i * 16, 4096,
+                                            "/tmp/g.dat", ts=float(i))
+        if rw_py is not None:
+            break
+    check("comm=python3 silent-encryption storm alerts", rw_py is not None)
 
     # ── benign activity ──────────────────────────────────────────────
     print("benign activity")
@@ -1912,6 +2076,81 @@ def _selftest() -> int:
     check("audit build has no heartbeat -EPERM gate",
           "if (__heartbeat_stale()) return -EPERM;" not in _src6n)
 
+    # ── BUG 3: LSM canary deny must emit a perf event BEFORE -EPERM ────
+    print("BUG 3: canary attempt visible to userspace before LSM deny")
+    import inspect as _insp
+    _srcc = build_bpf(enforce=True, lsm=True)
+    check("canary_events perf output declared",
+          "BPF_PERF_OUTPUT(canary_events)" in _srcc)
+    check("canary_event_t struct defined", "struct canary_event_t" in _srcc)
+    check("__emit_canary_attempt helper present", "__emit_canary_attempt" in _srcc)
+    _pr = _srcc[_srcc.index("LSM_PROBE(path_rename"):
+                _srcc.index("LSM_PROBE(file_permission")]
+    _branch = _pr[_pr.index("canary_inodes.lookup"):]
+    check("path_rename submits attempt BEFORE -EPERM",
+          "__emit_canary_attempt" in _branch
+          and _branch.index("__emit_canary_attempt") < _branch.index("return -EPERM"))
+    _fp = _srcc[_srcc.index("LSM_PROBE(file_permission"):]
+    check("file_permission write-deny hook present (canary writes blocked)", True)
+    check("file_permission gates on MAY_WRITE (reads unaffected)", "MAY_WRITE" in _fp)
+    check("file_permission submits attempt BEFORE -EPERM",
+          _fp.index("__emit_canary_attempt") < _fp.index("return -EPERM"))
+    _run_src2 = _insp.getsource(run_sensor)
+    check("_handle_canary registered on canary_events perf buffer",
+          'b["canary_events"].open_perf_buffer(_handle_canary' in _run_src2)
+    check("_handle_canary emits CANARY_ATTEMPT when kernel blocked",
+          '"CANARY_ATTEMPT"' in _run_src2)
+    check("_handle_canary arms containment layer=canary",
+          '_contain_q.put_nowait((pid, comm, "canary"))' in _run_src2)
+    check("canary inodes registered in every mode (not just enforce+lsm)",
+          "if canary_paths:" in _run_src2)
+
+    # ── W1: single canary write reaches userspace (no burst needed) ───
+    print("W1: canary write emitted from vfs_write before any throttle")
+    for _enf in (True, False):
+        _v  = build_bpf(enforce=_enf, lsm=False)
+        _vb = _v[_v.index("int kprobe__vfs_write"):_v.index("// ── Execve handler")]
+        check(f"vfs_write checks canary_inodes (enforce={_enf})",
+              "canary_inodes.lookup(&_ino)" in _vb)
+        check(f"canary submit precedes rate limiter (enforce={_enf})",
+              _vb.index("canary_events.perf_submit")
+              < _vb.index("if (__rate_limited"))
+        check(f"canary submit not gated by write burst (enforce={_enf})",
+              _vb.index("canary_events.perf_submit")
+              < _vb.index("WRITE_BURST_THRESH"))
+    _vab = build_bpf(enforce=False, lsm=False)
+    _vabb = _vab[_vab.index("int kprobe__vfs_write"):_vab.index("// ── Execve handler")]
+    check("audit build does NOT arm blocked_pids on canary write",
+          "_cone" not in _vabb)
+    _veb = build_bpf(enforce=True, lsm=False)
+    _vebb = _veb[_veb.index("int kprobe__vfs_write"):_veb.index("// ── Execve handler")]
+    check("enforce build arms blocked_pids on canary write", "_cone" in _vebb)
+
+    # ── BUG 4: --lsm/--no-lsm flag wiring ──────────────────────────────
+    print("BUG 4: lsm parameter on run_sensor")
+    _sigp = _insp.signature(run_sensor).parameters
+    check("run_sensor accepts lsm param", "lsm" in _sigp)
+    check("lsm defaults to auto-detect (None)", _sigp["lsm"].default is None)
+
+    # ── W2/W3/W4 + layer threading ──────────────────────────────────────
+    print("W2/W3/W4: containment wiring + layer attribution")
+    _hw2 = _run_src2[_run_src2.index("def _handle_write"):
+                     _run_src2.index("def _handle_behavior")]
+    check("W2: observe_write branch queues containment",
+          _hw2.count("_contain_q.put_nowait") >= 2)
+    check("layer=rename wired",
+          '_contain_q.put_nowait((pid, comm, "rename"))' in _run_src2)
+    check("layer=write_offset wired",
+          '_contain_q.put_nowait((pid, comm, "write_offset"))' in _run_src2)
+    check("layer=entropy wired",
+          '_contain_q.put_nowait((pid, comm, "entropy"))' in _run_src2)
+    check("layer=execve wired",
+          '_contain_q.put_nowait((ppid, comm, "execve"))' in _run_src2)
+    check("W3: observe_kernel_burst removed (dead code)",
+          not hasattr(DetectionEngine, "observe_kernel_burst"))
+    check("W4: severity recomputed only for PROCESS_ANOMALY",
+          'event["event_type"] == "PROCESS_ANOMALY"' in _run_src2)
+
     # ── BPF source generation ─────────────────────────────────────────
     print("BPF source generation (all variants compile to text)")
     for enforce in (True, False):
@@ -1940,6 +2179,12 @@ if __name__ == "__main__":
     ap.add_argument("--per-dir",        type=int, default=2)
     ap.add_argument("--dry-run-seed",   action="store_true")
     ap.add_argument("--mode",           choices=["enforce","audit"], default="enforce")
+    # BUG 4 fix: tri-state LSM control. Absent = auto-detect kernel support;
+    # --lsm forces inline-LSM-deny; --no-lsm forces SIGSTOP-fallback.
+    ap.add_argument("--lsm",            action=argparse.BooleanOptionalAction,
+                    default=None,
+                    help="force BPF-LSM inline blocking on/off "
+                         "(default: auto-detect kernel support)")
     ap.add_argument("--watch",          action="append", default=None)
     ap.add_argument("--canary",         action="append", default=None)
     ap.add_argument("--threshold",      type=int, default=2)
@@ -2003,4 +2248,5 @@ if __name__ == "__main__":
         threshold      = args.threshold,
         window_seconds = args.window,
         sim_fn         = sim_fn,
+        lsm            = args.lsm,
     )

@@ -15,6 +15,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,7 +133,17 @@ def _capture_evidence(pid: int, output_dir: Optional[Path] = None) -> tuple[Opti
         evidence_dir = EVIDENCE_BASE / f"pid_{pid}_{ts}"
     else:
         evidence_dir = output_dir
-    evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        # EVIDENCE_BASE may be unwritable (e.g. root-owned leftover from an
+        # earlier privileged run while we run unprivileged). Evidence capture
+        # must never abort the containment pipeline — fall back to a private
+        # temp dir and keep going.
+        fallback = Path(tempfile.mkdtemp(prefix=f"rsentry_evidence_pid{pid}_"))
+        logger.warning("evidence dir %s not writable (%s) — falling back to %s",
+                       evidence_dir, exc, fallback)
+        evidence_dir = fallback
 
     captured: list[str] = []
     proc_dir = Path(f"/proc/{pid}")

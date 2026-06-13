@@ -27,16 +27,16 @@ OBSERVATION SURFACES ONLY (no agent internals are imported/called):
   * /proc/<pid>/stat  +  /proc/<pid>/status
   * /sys/fs/cgroup/rsentry-contain-*/cgroup.procs
 
-TWO REAL AGENT QUIRKS THIS TEST WORKS AROUND (both intentional, documented):
-  1. agent/monitor.py:62 lists "python3" in IGNORE_COMMS and merges it into the
-     eBPF engine, so a sim launched as `python3 -m ...` is SAFELISTED and never
-     detected. Real ransomware is not named python3 — so we launch the sim through
-     a symlinked interpreter (/tmp/lockbit_locker -> python3); the kernel `comm`
-     becomes "lockbit_locker", which is NOT safelisted. (Verified: comm == basename
-     of the exec'd path.)
-  2. agent/monitor.py:46 reads SENSOR_MODE from the ENV at import; the parsed
-     `--mode` flag is ignored. So enforce mode is selected via SENSOR_MODE=enforce
-     in the agent's environment (not --mode).
+LAUNCH CHOICES (historical agent quirks now FIXED — kept for log realism):
+  1. BUG 2 (fixed): "python3" was in agent/monitor.py IGNORE_COMMS, so a sim
+     launched as `python3 -m ...` used to be safelisted and invisible. The entry
+     is removed — plain-python3 sims are now detected. We still launch through a
+     symlinked interpreter (/tmp/lockbit_locker -> python3) so the kernel `comm`
+     reads like a real ransomware binary in logs/alerts. (Verified: comm ==
+     basename of the exec'd path.)
+  2. BUG 1 (fixed): the parsed `--mode` flag used to be ignored (env-only).
+     `--mode` now overrides SENSOR_MODE; SENSOR_MODE=enforce is still set in the
+     agent env as belt-and-braces — both paths select enforce.
   Plus: the agent posts telemetry to BACKEND_URL synchronously inside the contain
   worker, and agent/client.py retries with back-off (~4.5s) when the backend is
   down — which would delay the SIGSTOP past the sim's lifetime. We stand up a
@@ -350,10 +350,11 @@ def _selfcheck(report: Report) -> int:
                  f"path={path_token} uid_token={not no_uid_token}",
                  path_token and no_uid_token)
 
-    # Quirk #1 justification: agent safelists python3; our launcher name is not.
-    report.check("agent IGNORE_COMMS safelists python3 (why we rename the interp)",
-                 "python3 in set",
-                 "yes" if '"python3"' in msrc else "no", '"python3"' in msrc)
+    # BUG 2 regression: the interpreter must never be safelisted again.
+    report.check("agent IGNORE_COMMS does NOT safelist python3 (BUG 2 fixed)",
+                 "python3 absent",
+                 "absent" if '"python3"' not in msrc else "present",
+                 '"python3"' not in msrc)
 
     # Symlink-comm trick: comm becomes the basename of the exec'd path.
     try:
