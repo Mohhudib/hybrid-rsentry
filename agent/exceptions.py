@@ -55,8 +55,6 @@ WHITELISTED_EXTENSIONS = {
 }
 
 
-
-
 # ── Smart temp-dir filter ─────────────────────────────────────────
 # Temp dirs بتضل whitelisted، إلا لو الملف بامتداد بستهدفه الـ ransomware
 TEMP_DIR_PREFIXES = ("/tmp/", "/var/tmp/", "/dev/shm/")
