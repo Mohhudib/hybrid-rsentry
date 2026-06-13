@@ -98,21 +98,6 @@ services:
     volumes:
       - ./backend:/app/backend
 
-  # -------------------------------------------------------------------------
-  # React Frontend (production build served via nginx)
-  # -------------------------------------------------------------------------
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.frontend
-    container_name: rsentry_frontend
-    restart: unless-stopped
-    networks:
-      - rsentry_net
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
 
 volumes:
   postgres_data:
