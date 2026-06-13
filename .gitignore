@@ -16,6 +16,8 @@ build/
 .env
 .env.local
 .env.*.local
+.env.save
+.env.save.*
 
 # Node
 node_modules/
