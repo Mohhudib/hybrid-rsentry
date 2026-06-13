@@ -142,7 +142,7 @@ backend/routers/alerts.py        — Alert CRUD, /counts, ACK, analyze, evidence
 backend/routers/hosts.py         — Host list, risk summary (alert_count + event_count), contain/release
 backend/routers/ws.py            — WebSocket, subscribes to 3 Redis channels, ping/pong
 backend/workers/tasks.py         — All Celery tasks; reads .env via _env() for broker/db config
-backend/services/ai_analyst.py   — NVIDIA LLM calls, dual-key rate limiting via Redis Lua script
+backend/services/ai_analyst.py   — Multi-provider AI: Cerebras → NVIDIA → Groq fallback; dual-key (_events / _alerts)
 
 agent/monitor.py                 — Main watchdog; coordinates all modules, heartbeat, reposition loop
 agent/containment.py             — SIGSTOP → /proc evidence → iptables → SIGKILL pipeline
