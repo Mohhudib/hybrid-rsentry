@@ -2,6 +2,7 @@
 lineage.py — psutil process ancestry scorer.
 Returns a suspicion score 0–100 based on parent names, spawn path, and SHA-256 hash.
 """
+import glob
 import hashlib
 import logging
 import os
@@ -136,7 +137,6 @@ def _load_dpkg_hashes() -> dict[str, str]:
     Parse all /var/lib/dpkg/info/*.md5sums into {absolute_path: md5}.
     Each line format:  '<md5>  <relative_path>'
     """
-    import glob
     hashes: dict[str, str] = {}
     for md5file in glob.glob("/var/lib/dpkg/info/*.md5sums"):
         try:
