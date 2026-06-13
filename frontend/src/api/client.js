@@ -10,7 +10,6 @@ const api = axios.create({
 
 // Events
 export const getEvents = (params = {}) => api.get('/api/events', { params });
-export const getEvent = (id) => api.get(`/api/events/${id}`);
 
 // Alerts
 export const getAlerts = (params = {}) => api.get('/api/alerts', { params });
