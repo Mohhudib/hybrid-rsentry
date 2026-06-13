@@ -14,6 +14,7 @@ export const getEvents = (params = {}) => api.get('/api/events', { params });
 // Alerts
 export const getAlerts = (params = {}) => api.get('/api/alerts', { params });
 export const acknowledgeAllAlerts = () => api.post('/api/alerts/acknowledge-all');
+export const clearAllAlerts = () => api.post('/api/alerts/clear-all');
 export const acknowledgeAlert = (id) => api.patch(`/api/alerts/${id}/acknowledge`);
 export const analyzeAlert = (id) => api.post(`/api/alerts/${id}/analyze`);
 export const getAlertEvidence = (id, signal) => api.get(`/api/alerts/${id}/evidence`, { signal });

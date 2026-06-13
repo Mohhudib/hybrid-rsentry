@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { getAlerts, getEvents, acknowledgeAllAlerts } from '../api/client';
+import { getAlerts, getEvents, acknowledgeAllAlerts, clearAllAlerts } from '../api/client';
 import FacetRail from '../components/FacetRail';
 import MetricsStrip from '../components/MetricsStrip';
 import AlertsHistogram from '../components/AlertsHistogram';
@@ -18,6 +18,7 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
   const [spinning, setSpinning] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [acking,   setAcking]   = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(10000);
 
   const fetchAll = useCallback(async () => {
@@ -68,6 +69,19 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
       console.error(err);
     } finally {
       setAcking(false);
+    }
+  }
+
+  async function handleClearAll() {
+    if (!window.confirm('Clear all open alerts? This marks them all as acknowledged.')) return;
+    setClearing(true);
+    try {
+      await clearAllAlerts();
+      await fetchAll();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -162,6 +176,12 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
           style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <i className="fa-solid fa-file-csv" />
           CSV
+        </button>
+        <button onClick={handleClearAll} disabled={clearing}
+          title="Clear all open alerts (mark as acknowledged)"
+          style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: clearing ? 'not-allowed' : 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--crit)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: clearing ? 0.6 : 1 }}>
+          <i className="fa-solid fa-trash-can" />
+          Clear
         </button>
       </div>
 
