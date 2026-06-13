@@ -73,7 +73,7 @@ def _get_client_events():
             raise RuntimeError("AI_API_KEY not set in environment")
         if key.startswith("gsk_"):
             _client_events = OpenAI(base_url=GROQ_BASE_URL, api_key=key)
-            _client_events._model = "llama-3.3-70b-versatile"
+            _client_events._model = GROQ_MODEL
         else:
             _client_events = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
             _client_events._model = NVIDIA_MODEL
