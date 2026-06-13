@@ -87,7 +87,7 @@ def _get_client_alerts():
         if not key:
             raise RuntimeError("AI_API_KEY_ALERTS not set in environment")
         if key.startswith("gsk_"):
-            _client_alerts = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=key)
+            _client_alerts = OpenAI(base_url=GROQ_BASE_URL, api_key=key)
             _client_alerts._model = "llama-3.3-70b-versatile"
         else:
             _client_alerts = OpenAI(base_url=NVIDIA_BASE_URL, api_key=key)
