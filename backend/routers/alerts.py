@@ -2,12 +2,15 @@
 alerts.py — Alert management endpoints + evidence retrieval.
 """
 import asyncio
+import csv
+import io
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc, func
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, desc, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.database import get_db
@@ -124,6 +127,59 @@ async def list_alerts_with_events(
             "details":      event.details or {},
         })
     return result
+
+@router.post("/acknowledge-all")
+async def acknowledge_all_alerts(db: AsyncSession = Depends(get_db)):
+    """Bulk-acknowledge every open alert and trigger risk recalculation for all affected hosts."""
+    host_rows = (await db.execute(
+        select(Alert.host_id).where(Alert.acknowledged == False).distinct()  # noqa: E712
+    )).scalars().all()
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(Alert)
+        .where(Alert.acknowledged == False)  # noqa: E712
+        .values(acknowledged=True, resolved_at=now)
+    )
+    await db.commit()
+    from backend.workers.tasks import update_host_risk
+    for host_id in host_rows:
+        update_host_risk.delay(host_id)
+    return {"acknowledged": len(host_rows) > 0, "hosts_updated": len(host_rows)}
+
+
+@router.get("/export/csv")
+async def export_alerts_csv(
+    severity: Optional[str] = Query(None),
+    acknowledged: Optional[bool] = Query(None),
+    limit: int = Query(1000, le=5000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export alerts as a CSV file for offline analysis."""
+    stmt = select(Alert).order_by(desc(Alert.created_at)).limit(limit)
+    if severity and severity != "ALL":
+        stmt = stmt.where(Alert.severity == severity)
+    if acknowledged is not None:
+        stmt = stmt.where(Alert.acknowledged == acknowledged)
+    alerts = (await db.execute(stmt)).scalars().all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "host_id", "severity", "acknowledged", "created_at", "resolved_at", "event_id"])
+    for a in alerts:
+        writer.writerow([
+            str(a.id), a.host_id, a.severity.value, a.acknowledged,
+            a.created_at.isoformat() if a.created_at else "",
+            a.resolved_at.isoformat() if a.resolved_at else "",
+            str(a.event_id) if a.event_id else "",
+        ])
+    buf.seek(0)
+    filename = f"rsentry-alerts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
 
 @router.get("/{alert_id}", response_model=AlertResponse)
 async def get_alert(alert_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
