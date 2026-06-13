@@ -47,7 +47,7 @@ BENIGN_PARENTS = {
 WEIGHT_SUSPICIOUS_PARENT = 30
 WEIGHT_SUSPICIOUS_PATH = 25
 WEIGHT_DEEP_ANCESTRY = 15
-WEIGHT_HASH_MISMATCH = 20
+WEIGHT_EXE_UNREADABLE = 20
 WEIGHT_NO_TTY = 2  # قللناه لأن معظم background processes بدون TTY
 WEIGHT_RAPID_SPAWN = 5
 
@@ -264,7 +264,7 @@ def score_process(pid: int) -> Optional[ProcessLineage]:
     if lineage.exe:
         lineage.sha256 = _sha256_of_exe(lineage.exe)
         if lineage.sha256 is None:
-            score += WEIGHT_HASH_MISMATCH * 0.5
+            score += WEIGHT_EXE_UNREADABLE * 0.5
             lineage.reasons.append("exe_unreadable")
         else:
             verdict = verify_against_dpkg(lineage.exe)
