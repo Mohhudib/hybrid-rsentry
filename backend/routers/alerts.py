@@ -185,30 +185,38 @@ async def export_alerts_csv(
         stmt = stmt.where(Alert.acknowledged == acknowledged)
     rows = (await db.execute(stmt)).all()
 
+    def _fmt_dt(dt):
+        if not dt:
+            return ""
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    def _yn(val):
+        return "Yes" if val else "No"
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "alert_id", "host_id", "severity", "acknowledged",
-        "alert_created_at", "resolved_at",
-        "event_type", "event_timestamp", "pid", "process_name",
-        "file_path", "entropy_delta", "lineage_score", "canary_hit",
+        "Alert ID (short)", "Host", "Severity", "Status",
+        "Detected At", "Resolved At",
+        "Event Type", "Event Time", "PID", "Process",
+        "File Path", "Entropy Delta", "Lineage Score", "Canary Hit",
     ])
     for alert, event in rows:
         writer.writerow([
-            str(alert.id),
+            str(alert.id)[:8],
             alert.host_id,
             alert.severity.value,
-            alert.acknowledged,
-            alert.created_at.isoformat() if alert.created_at else "",
-            alert.resolved_at.isoformat() if alert.resolved_at else "",
+            "Acknowledged" if alert.acknowledged else "Open",
+            _fmt_dt(alert.created_at),
+            _fmt_dt(alert.resolved_at),
             event.event_type.value if event else "",
-            event.timestamp.isoformat() if event and event.timestamp else "",
+            _fmt_dt(event.timestamp) if event else "",
             event.pid if event else "",
             event.process_name if event else "",
             event.file_path if event else "",
-            event.entropy_delta if event else "",
-            event.lineage_score if event else "",
-            event.canary_hit if event else "",
+            f"{event.entropy_delta:.2f}" if event and event.entropy_delta is not None else "",
+            f"{event.lineage_score:.2f}" if event and event.lineage_score is not None else "",
+            _yn(event.canary_hit) if event else "",
         ])
     buf.seek(0)
     filename = f"rsentry-alerts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
