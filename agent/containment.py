@@ -228,16 +228,6 @@ def _capture_evidence(pid: int, output_dir: Optional[Path] = None) -> tuple[Opti
 #   covering the tree without racing PID enumeration. Sibling processes under
 #   the same UID are never in the cgroup, so they keep full network access.
 
-def _read_uid(pid: int) -> Optional[int]:
-    """Return the real UID of *pid* from /proc, or None if unreadable."""
-    try:
-        status = Path(f"/proc/{pid}/status").read_text()
-        uid_line = next(l for l in status.splitlines() if l.startswith("Uid:"))
-        return int(uid_line.split()[1])  # real UID is the first field
-    except (FileNotFoundError, StopIteration, ValueError, OSError):
-        return None
-
-
 def _agent_protected_pids() -> set[int]:
     """
     PIDs that must never be network-isolated: the agent process itself and all
