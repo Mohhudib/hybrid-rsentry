@@ -69,8 +69,12 @@ async def test_counts_all_zero_when_empty(client):
     r = await client.get("/api/alerts/counts")
     assert r.status_code == 200
     body = r.json()
-    # GROUP BY assembly must still return every severity key + TOTAL
-    assert body == {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0, "TOTAL": 0}
+    # GROUP BY assembly must still return every severity key + TOTAL,
+    # plus the 24h rollup keys the dashboard MetricsStrip consumes.
+    assert body == {
+        "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0, "TOTAL": 0,
+        "CRITICAL_24H": 0, "HIGH_24H": 0, "MEDIUM_24H": 0, "TOTAL_24H": 0,
+    }
 
 
 @pytest.mark.asyncio
