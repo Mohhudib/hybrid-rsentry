@@ -20,7 +20,6 @@ export const forensicExport = (id) => api.get(`/api/alerts/${id}/forensic-export
 
 // Hosts
 export const getHosts = (params = {}) => api.get('/api/hosts', { params });
-export const getHost = (id) => api.get(`/api/hosts/${id}`);
 export const getHostRisk = (id) => api.get(`/api/hosts/${id}/risk`);
 export const containHost = (id) => api.post(`/api/hosts/${id}/contain`);
 export const releaseHost = (id) => api.delete(`/api/hosts/${id}/contain`);
