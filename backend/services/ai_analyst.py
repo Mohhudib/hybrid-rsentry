@@ -24,7 +24,6 @@ NVIDIA_BASE_URL   = "https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL      = "meta/llama-3.1-70b-instruct"
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 CEREBRAS_MODEL    = "llama3.1-70b"
-GROQ_RATE_DELAY     = 0.5  # سريع
 CEREBRAS_RATE_DELAY = 0.5  # الأسرع
 NVIDIA_RATE_DELAY   = 3.0  # أبطأ
 
