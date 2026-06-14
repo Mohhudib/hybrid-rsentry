@@ -68,6 +68,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend
+      - ./agent:/app/agent
       - evidence_store:/tmp/rsentry_evidence
 
   # -------------------------------------------------------------------------
