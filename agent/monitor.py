@@ -12,7 +12,6 @@ Environment variables:
   WATCH_PATH         directory to monitor     (default: /home)
   BACKEND_URL        FastAPI server URL       (default: http://localhost:8000)
   HOST_ID            agent hostname/uuid      (default: socket.gethostname())
-  CANARY_STRATEGY    bfs | dfs                (default: bfs)
   HEARTBEAT_INTERVAL seconds between pulses   (default: 30)
   REPOSITION_INTERVAL seconds between Markov  (default: 300)
   DRY_RUN            true | false             (default: false)
