@@ -9,6 +9,7 @@ export const RULE_NAME = {
   HEARTBEAT:             'System Heartbeat',
   RANSOMWARE_RENAME:     'Ransomware File Extension Rename Detected',
   RANSOMWARE_CREATED:    'Ransomware Encrypted File Created',
+  CANARY_DELETED:        'Canary File Deleted by Untrusted Process',
 };
 
 export const MITRE = {
