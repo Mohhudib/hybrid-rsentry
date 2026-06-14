@@ -1,0 +1,3 @@
+# Evaluation outputs are generated artifacts (design §4) — do not commit them.
+*
+!.gitignore

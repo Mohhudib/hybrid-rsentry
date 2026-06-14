@@ -92,7 +92,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from simulations.sim_common import (
-    ATTACKER_PID, ATTACKER_PPID, DefenseResult, Sandbox,
+    ATTACKER_PID, ATTACKER_PPID, DefenseResult, EvalTimestampWriter, Sandbox,
     add_common_args, build_validation_engine, file_entropy, populate_corpus,
     _backup_corpus, _restore_corpus, _set_comm,
 )
@@ -190,7 +190,8 @@ def run_entropy_attack(root: str,
                        max_files: int = DEFAULT_MAX_FILES,
                        delay: float = 0.1,
                        scratch_deletes: int = DEFAULT_SCRATCH_DELETES,
-                       keepalive_s: float = DEFAULT_KEEPALIVE_S) -> dict:
+                       keepalive_s: float = DEFAULT_KEEPALIVE_S,
+                       ts_writer: Optional["EvalTimestampWriter"] = None) -> dict:
     """Drive the running eBPF sensor toward layer=entropy ONLY.
 
     Phase A: overwrite documents in place with banded high-entropy content
@@ -211,6 +212,9 @@ def run_entropy_attack(root: str,
                 continue
             buf, ent = make_banded_content()
             stats["entropies"].append(round(ent, 3))
+            # Side-channel: the first in-place overwrite is t0 (§0.3).
+            if ts_writer is not None:
+                ts_writer.touch(str(doc), "write")
             # r+b keeps the SAME inode (true in-place); single write from 0 is
             # sequential, so the write-offset nonseq counter never climbs past 1.
             fd = os.open(str(doc), os.O_RDWR)
@@ -238,6 +242,8 @@ def run_entropy_attack(root: str,
             scratch_paths.append(sp)
         for sp in scratch_paths:         # the delete burst (no per-op delay)
             try:
+                if ts_writer is not None:
+                    ts_writer.touch(str(sp), "delete")
                 os.unlink(sp)
                 stats["scratch_deleted"] += 1
             except OSError:
@@ -349,13 +355,22 @@ def live_main(ap: argparse.ArgumentParser) -> int:
     print(f"[{NAME}] backup at {backup}")
     print(f"[{NAME}] starting entropy-only simulation | max_files={args.max_files} "
           f"delay={args.delay}")
+
+    ts_writer = None
+    if getattr(args, "eval_timestamps", None):
+        ts_writer = EvalTimestampWriter(args.eval_timestamps)
+        ts_writer.start(os.getpid())
+
     try:
         stats = run_entropy_attack(
             root,
             max_files=args.max_files if args.max_files is not None else DEFAULT_MAX_FILES,
             delay=args.delay if args.delay is not None else 0.1,
+            ts_writer=ts_writer,
         )
     finally:
+        if ts_writer is not None:
+            ts_writer.close()
         # Remove scratch dir before restore (it post-dates the backup anyway).
         shutil.rmtree(Path(root) / SCRATCH_DIRNAME, ignore_errors=True)
         if not args.no_restore:

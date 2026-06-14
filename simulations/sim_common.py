@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import random
 import shutil
@@ -45,6 +46,54 @@ def _set_comm(name: str) -> None:
             15, name.encode()[:15], 0, 0, 0)
     except Exception:
         pass
+
+
+class EvalTimestampWriter:
+    """Evaluation side-channel (docs/evaluation-design.md §0.3 / §0.5).
+
+    Writes JSONL on the CLOCK_MONOTONIC clock (``time.monotonic_ns``) — the SAME
+    clock the harness reads, and which is system-wide on Linux, so the sim's t0 /
+    per-touch timestamps are directly comparable with the harness's stage
+    timestamps across processes. Opt-in: created only when --eval-timestamps is
+    given, so default sim behaviour is unchanged. Emits one record per line:
+        {"event":"start","ts_ns":..,"pid":..}
+        {"event":"touch","ts_ns":..,"op":"encrypt","path":".."}   # first == t0
+    Never raises into the attack path — a side-channel failure must not perturb
+    what the sensor observes.
+    """
+
+    def __init__(self, path: str) -> None:
+        # The side-channel is best-effort enrichment and MUST NOT perturb the
+        # attack path. If the file cannot be opened (e.g. a permission issue on
+        # the harness-provided path), degrade to a no-op writer rather than
+        # raising — a raising __init__ here would abort the sim before any file
+        # op and make the sensor observe silence.
+        try:
+            self._fh = open(path, "a", buffering=1)        # line-buffered
+        except OSError:
+            self._fh = None
+
+    def start(self, pid: int) -> None:
+        self._emit("start", pid=pid)
+
+    def touch(self, path: str, op: str) -> None:
+        """Record one malicious file-touch. The FIRST touch is t0 (§0.3)."""
+        self._emit("touch", path=path, op=op)
+
+    def _emit(self, event: str, **kw) -> None:
+        if self._fh is None:
+            return
+        try:
+            self._fh.write(json.dumps({"event": event,
+                                       "ts_ns": time.monotonic_ns(), **kw}) + "\n")
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +315,8 @@ class Manifest:
 
 def run_attack(root: str, profile: Profile, traversal: str = "dfs",
                skip_aaa: bool = False, max_files: Optional[int] = None,
-               delay: Optional[float] = None) -> Manifest:
+               delay: Optional[float] = None,
+               ts_writer: Optional["EvalTimestampWriter"] = None) -> Manifest:
     manifest = Manifest()
     manifest.t_start = time.perf_counter()
 
@@ -283,6 +333,11 @@ def run_attack(root: str, profile: Profile, traversal: str = "dfs",
     eff_delay = profile.delay if delay is None else delay
 
     for path in targets:
+        # Side-channel: record the first file-touch (t0) and every subsequent
+        # touch, immediately BEFORE the mutation, so the timestamp precedes the
+        # syscall the sensor sees.
+        if ts_writer is not None:
+            ts_writer.touch(path, "encrypt")
         new_path = _simulate_file(path, profile)
         if new_path:
             manifest.encrypted.append(new_path)
@@ -322,6 +377,9 @@ def add_common_args(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--delay",      type=float, default=None,
                     help="per-file delay in seconds (overrides the profile "
                          "default; lets a live sensor act on a running PID)")
+    ap.add_argument("--eval-timestamps", default=None, metavar="PATH",
+                    help="evaluation side-channel: write t0 + per-file-touch "
+                         "monotonic_ns timestamps as JSONL to PATH (harness use)")
 
 
 def main_for(profile: Profile, ap: argparse.ArgumentParser) -> int:
@@ -348,13 +406,21 @@ def main_for(profile: Profile, ap: argparse.ArgumentParser) -> int:
     print(f"[{profile.name}] backup at {backup}")
     print(f"[{profile.name}] starting simulation | traversal={args.traversal}")
 
+    ts_writer = None
+    if getattr(args, "eval_timestamps", None):
+        ts_writer = EvalTimestampWriter(args.eval_timestamps)
+        ts_writer.start(os.getpid())
+
     try:
         manifest = run_attack(root, profile,
                               traversal=args.traversal,
                               skip_aaa=args.skip_aaa,
                               max_files=args.max_files,
-                              delay=args.delay)
+                              delay=args.delay,
+                              ts_writer=ts_writer)
     finally:
+        if ts_writer is not None:
+            ts_writer.close()
         if not args.no_restore:
             _restore_corpus(root, backup)
             print(f"[{profile.name}] corpus restored")

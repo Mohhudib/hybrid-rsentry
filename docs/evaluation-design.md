@@ -384,3 +384,40 @@ tests/evaluation/
 9. **mmap blind spot (§3.6).** In scope to add an mmap-based sim variant as an **expected-FN** robustness probe (honest gap), or out of scope for the capstone?
 10. **Stats choices (§3.5).** Confirm **McNemar + Holm–Bonferroni** at α=0.05 for ablation; **Wilcoxon signed-rank** for overhead; **Wilson** + **bootstrap** for CIs.
 11. **Entropy-necessity sample (§3.2.1).** Authorize adding a new **sequential-write, no-rename, high-entropy in-place** sim sample — the only workload shape whose detection uniquely depends on the entropy layer (`_handle_behavior` `entropy >= 6.5`). Without it the `−entropy` ablation can only show a severity-grade change, never a recall drop. In scope for the capstone, or accept entropy as a documented conditional/enrichment layer?
+
+---
+
+# 8. Findings surfaced during harness bring-up
+
+A methodological point worth stating in the paper: **building the evaluation
+harness immediately surfaced a silent, security-critical bug in the production
+containment path** — exactly the kind of defect a benchmark that only checks
+"was it detected?" would miss. This is evidence that the harness measures
+*response*, not just *detection* (§0.2), and that the detection/containment
+split is not academic.
+
+**F1 — Silent containment abort (production path).** During the first end-to-end
+Akira trial, the agent SIGSTOP'd the malicious PID but never isolated or
+SIGKILL'd it — and logged nothing. Two compounding defects:
+- `agent/containment.py` `_capture_evidence()` called `psutil.Process.net_connections()`,
+  which does not exist in **psutil < 6.0** (the agent venv runs 5.9.8; the system
+  interpreter runs 7.1.0 — the version split is why it first looked
+  environment-dependent). The `AttributeError` was not caught by the narrow
+  `except (NoSuchProcess, AccessDenied)`, so `contain()` aborted **after SIGSTOP,
+  before SIGKILL**.
+- `agent/monitor_ebpf.py` `_contain_worker` used `except Exception: pass`, making
+  the abort **completely silent**.
+
+**Fixes (landed; 186/186 unit tests pass):** (1) version-robust connections API
+resolved once at import; (2) `_capture_evidence` hardened to best-effort
+per-accessor — any single psutil failure degrades that field to `"unavailable"`
+and the pipeline always proceeds to SIGKILL; (3) `_contain_worker` now logs the
+full traceback at ERROR (`logger.exception`) so a containment failure can never
+again be silent.
+
+**Validity implication.** A detector that *detects* but silently fails to
+*contain* scores identically to a perfect system on a detection-only metric. The
+efficacy axis must therefore report `P(C | D)` (§0.2) as a first-class number,
+and the efficiency axis's stage decomposition (§2.2) is what makes such a
+mid-pipeline abort observable. Recommend the paper cite this as motivation for
+the detection-vs-containment separation.
