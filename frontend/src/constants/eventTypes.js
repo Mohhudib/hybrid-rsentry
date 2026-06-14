@@ -20,4 +20,5 @@ export const MITRE = {
   CONTAINMENT_TRIGGERED: [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }],
   RANSOMWARE_RENAME:     [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }],
   RANSOMWARE_CREATED:    [{ id: 'T1486', name: 'Data Encrypted for Impact',       tac: 'Impact' }],
+  CANARY_DELETED:        [{ id: 'T1485', name: 'Data Destruction',                tac: 'Impact' }],
 };
