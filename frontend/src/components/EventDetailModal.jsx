@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import FileSystemGraph from './FileSystemGraph';
 import { RULE_NAME, MITRE } from '../constants/eventTypes';
+import { containHost, getHost } from '../api/client';
 
 const SEV_COLOR = { CRITICAL: 'var(--crit)', HIGH: 'var(--high)', MEDIUM: 'var(--med)', LOW: 'var(--low)' };
 const SEV_BG    = { CRITICAL: 'var(--crit-bg)', HIGH: 'var(--high-bg)', MEDIUM: 'var(--med-bg)', LOW: 'var(--low-bg)' };
@@ -39,6 +40,31 @@ function KV({ label, value }) {
 }
 
 export default function EventDetailModal({ event, onClose }) {
+  const [isContained, setIsContained] = useState(false);
+  const [containing, setContaining] = useState(false);
+
+  useEffect(() => {
+    if (!event?.host_id) return;
+    setIsContained(false);
+    const controller = new AbortController();
+    getHost(event.host_id, controller.signal)
+      .then(r => { if (!controller.signal.aborted) setIsContained(r.data.is_contained); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [event?.host_id]);
+
+  async function handleContain() {
+    setContaining(true);
+    try {
+      await containHost(event.host_id);
+      setIsContained(true);
+    } catch (err) {
+      console.error('Containment failed:', err.response?.data?.detail || err.message);
+    } finally {
+      setContaining(false);
+    }
+  }
+
   if (!event) return null;
 
   const isMov    = event.event_type === 'HEARTBEAT' && event.details?.sub_type === 'MARKOV_REPOSITION';
@@ -83,8 +109,17 @@ export default function EventDetailModal({ event, onClose }) {
               {new Date(event.timestamp).toLocaleString()}
             </span>
             <button
+              className={`siem-dt-btn ${isContained ? '' : 'danger'}`}
+              onClick={handleContain}
+              disabled={containing || isContained}
+              style={{ marginLeft: 'auto' }}
+            >
+              <i className="fa-solid fa-plug-circle-xmark" style={{ fontSize: 11 }} />
+              {isContained ? 'Isolated ✓' : containing ? 'Isolating…' : 'Isolate host'}
+            </button>
+            <button
               onClick={onClose}
-              style={{ marginLeft: 'auto', width: 26, height: 26, display: 'grid', placeItems: 'center', borderRadius: 5, cursor: 'pointer', color: 'var(--muted)', border: '1px solid transparent', background: 'transparent' }}
+              style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', borderRadius: 5, cursor: 'pointer', color: 'var(--muted)', border: '1px solid transparent', background: 'transparent' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--panel-2)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.color = 'var(--muted)'; }}
             >
