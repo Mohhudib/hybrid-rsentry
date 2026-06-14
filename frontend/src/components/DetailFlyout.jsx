@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { acknowledgeAlert, analyzeAlert, containHost, getAlertEvidence } from '../api/client';
+import { acknowledgeAlert, analyzeAlert, containHost, getAlertEvidence, getHost } from '../api/client';
 import FileSystemGraph from './FileSystemGraph';
 import { RULE_NAME, MITRE } from '../constants/eventTypes';
 
@@ -46,6 +46,9 @@ export default function DetailFlyout({ alert, liveEvent, liveAiResult, onClose, 
     getAlertEvidence(alert.id, controller.signal)
       .then(r => setEvidence(r.data))
       .catch(err => { if (!controller.signal.aborted) setEvidence([]); });
+    getHost(alert.host_id, controller.signal)
+      .then(r => { if (!controller.signal.aborted) setIsContained(r.data.is_contained); })
+      .catch(() => {});
     return () => controller.abort();
   }, [alert?.id]);
 
