@@ -76,7 +76,12 @@ app.include_router(simulate.router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "hybrid-rsentry-backend"}
+    import os
+    return {
+        "status": "ok",
+        "service": "hybrid-rsentry-backend",
+        "sensor_backend": os.getenv("SENSOR_BACKEND", "ebpf"),
+    }
 
 
 @app.get("/")
