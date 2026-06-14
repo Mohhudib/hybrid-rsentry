@@ -23,6 +23,19 @@ sudo apt-get install -y --no-install-recommends \
     iptables auditd \
     nodejs npm 2>/dev/null || true
 
+# eBPF sensor dependencies (optional — agent falls back to inotify if unavailable)
+echo ""
+echo "==> [1b/5] Installing eBPF/BCC dependencies (optional)..."
+_KVER="$(uname -r)"
+if sudo apt-get install -y --no-install-recommends \
+        "linux-headers-${_KVER}" python3-bpfcc bpfcc-tools 2>/dev/null; then
+    echo "    eBPF deps installed (kernel ${_KVER}) — eBPF sensor will be active."
+else
+    echo "    WARNING: eBPF deps not available for kernel ${_KVER}."
+    echo "    The agent will use inotify fallback automatically."
+    echo "    To enable eBPF later: sudo apt install linux-headers-\$(uname -r)"
+fi
+
 # ── 2. Python virtual environment ───────────────────────────────────────────
 echo ""
 echo "==> [2/5] Creating Python virtual environment at $VENV_DIR ..."
