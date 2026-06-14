@@ -559,28 +559,55 @@ class Monitor:
             logger.critical("eBPF backend requires root: sudo -E python3 -m agent.monitor")
             sys.exit(1)
 
-        self._ebpf.IGNORE_COMMS.update(IGNORE_COMMS)
+        # Pre-flight: kernel headers must exist for BCC to compile BPF programs.
+        _release = os.uname().release
+        _headers = f"/lib/modules/{_release}/build"
+        if not os.path.isdir(_headers):
+            logger.warning(
+                "eBPF sensor cannot start — kernel headers not found at %s.\n"
+                "  Fix:  sudo apt install linux-headers-%s\n"
+                "  Falling back to inotify backend automatically.",
+                _headers, _release,
+            )
+            self.backend = "inotify"
+            self._run_inotify()
+            return
 
+        self._ebpf.IGNORE_COMMS.update(IGNORE_COMMS)
 
         print(f"[monitor] backend=eBPF mode={self.mode} "
               f"threshold={EBPF_THRESHOLD}/{EBPF_WINDOW}s "
               f"watch={self.watch_path}")
 
-        self._ebpf.run_sensor(
-            watch_dirs     = [self.watch_path],
-            canary_paths   = self._canaries,
-            host_id        = HOST_ID,
-            mode           = self.mode,
-            lsm            = self.lsm,
-            threshold      = EBPF_THRESHOLD,
-            window_seconds = EBPF_WINDOW,
-            emit           = self.emit_fn,
-            contain        = self.contain_fn,
-            lineage_fn     = self.lineage_fn,
-            entropy_fn     = self.entropy_fn,
-            sim_fn         = self._sim_fn if hasattr(self, "_sim_fn") else None,
-            stop_event     = self._stop_event,
-        )
+        try:
+            self._ebpf.run_sensor(
+                watch_dirs     = [self.watch_path],
+                canary_paths   = self._canaries,
+                host_id        = HOST_ID,
+                mode           = self.mode,
+                lsm            = self.lsm,
+                threshold      = EBPF_THRESHOLD,
+                window_seconds = EBPF_WINDOW,
+                emit           = self.emit_fn,
+                contain        = self.contain_fn,
+                lineage_fn     = self.lineage_fn,
+                entropy_fn     = self.entropy_fn,
+                sim_fn         = self._sim_fn if hasattr(self, "_sim_fn") else None,
+                stop_event     = self._stop_event,
+            )
+        except Exception as exc:
+            _msg = str(exc)
+            if any(kw in _msg for kw in ("Failed to compile BPF", "kernel headers", "No such file")):
+                logger.warning(
+                    "eBPF BPF program failed to compile (%s).\n"
+                    "  Fix:  sudo apt install linux-headers-%s\n"
+                    "  Falling back to inotify backend automatically.",
+                    _msg, _release,
+                )
+                self.backend = "inotify"
+                self._run_inotify()
+            else:
+                raise
 
     def set_sim(self, sim_path: str, sim_target: str, sim_traversal: str) -> None:
         """Wire a simulation to run inside the eBPF sensor loop."""
