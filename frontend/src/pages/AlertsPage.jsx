@@ -85,10 +85,10 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
     }
   }
 
-  function handleCsvExport() {
+  function handleExport(format) {
     const params = new URLSearchParams({ limit: 1000 });
     if (filter === 'active') params.set('acknowledged', 'false');
-    window.open(`/api/alerts/export/csv?${params}`, '_blank');
+    window.open(`/api/alerts/export/${format}?${params}`, '_blank');
   }
 
   function handleFacetToggle(field, value) {
@@ -171,11 +171,17 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
           <i className="fa-solid fa-check-double" />
           Bulk ACK
         </button>
-        <button onClick={handleCsvExport}
-          title="Export alerts as CSV"
+        <button onClick={() => handleExport('csv')}
+          title="Export as CSV — opens in Excel / Google Sheets"
           style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <i className="fa-solid fa-file-csv" />
           CSV
+        </button>
+        <button onClick={() => handleExport('txt')}
+          title="Export as TXT — aligned table, readable in any text editor"
+          style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <i className="fa-solid fa-file-lines" />
+          TXT
         </button>
         <button onClick={handleClearAll} disabled={clearing}
           title="Clear all open alerts (mark as acknowledged)"

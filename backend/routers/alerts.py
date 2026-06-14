@@ -165,14 +165,23 @@ async def acknowledge_all_alerts(db: AsyncSession = Depends(get_db)):
     return {"acknowledged": len(host_rows) > 0, "hosts_updated": len(host_rows)}
 
 
-@router.get("/export/csv")
-async def export_alerts_csv(
-    severity: Optional[str] = Query(None),
-    acknowledged: Optional[bool] = Query(None),
-    limit: int = Query(1000, le=5000),
-    db: AsyncSession = Depends(get_db),
-):
-    """Export alerts joined with event details as a CSV file for offline analysis."""
+_EXPORT_HEADERS = [
+    "Alert ID", "Host", "Severity", "Status",
+    "Detected At", "Resolved At",
+    "Event Type", "Event Time", "PID", "Process",
+    "File Path", "Entropy Delta", "Lineage Score", "Canary Hit",
+]
+
+
+def _fmt_dt(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC") if dt else ""
+
+
+def _yn(val):
+    return "Yes" if val else "No"
+
+
+async def _fetch_export_rows(db, severity, acknowledged, limit):
     stmt = (
         select(Alert, Event)
         .join(Event, Alert.event_id == Event.id)
@@ -184,35 +193,9 @@ async def export_alerts_csv(
     if acknowledged is not None:
         stmt = stmt.where(Alert.acknowledged == acknowledged)
     rows = (await db.execute(stmt)).all()
-
-    def _fmt_dt(dt):
-        if not dt:
-            return ""
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-
-    def _yn(val):
-        return "Yes" if val else "No"
-
-    HEADERS = [
-        "Alert ID",
-        "Host",
-        "Severity",
-        "Status",
-        "Detected At",
-        "Resolved At",
-        "Event Type",
-        "Event Time",
-        "PID",
-        "Process",
-        "File Path",
-        "Entropy Delta",
-        "Lineage Score",
-        "Canary Hit",
-    ]
-
-    data_rows = []
+    data = []
     for alert, event in rows:
-        data_rows.append([
+        data.append([
             str(alert.id)[:8],
             alert.host_id,
             alert.severity.value,
@@ -228,9 +211,41 @@ async def export_alerts_csv(
             f"{event.lineage_score:.2f}" if event and event.lineage_score is not None else "",
             _yn(event.canary_hit) if event else "",
         ])
+    return data
 
-    # Calculate column widths for aligned output
-    col_widths = [len(h) for h in HEADERS]
+
+@router.get("/export/csv")
+async def export_alerts_csv(
+    severity: Optional[str] = Query(None),
+    acknowledged: Optional[bool] = Query(None),
+    limit: int = Query(1000, le=5000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export alerts as a standard CSV file (opens in Excel / Google Sheets)."""
+    data_rows = await _fetch_export_rows(db, severity, acknowledged, limit)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_EXPORT_HEADERS)
+    writer.writerows(data_rows)
+    buf.seek(0)
+    filename = f"rsentry-alerts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/export/txt")
+async def export_alerts_txt(
+    severity: Optional[str] = Query(None),
+    acknowledged: Optional[bool] = Query(None),
+    limit: int = Query(1000, le=5000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export alerts as a human-readable aligned text table."""
+    data_rows = await _fetch_export_rows(db, severity, acknowledged, limit)
+    col_widths = [len(h) for h in _EXPORT_HEADERS]
     for row in data_rows:
         for i, cell in enumerate(row):
             col_widths[i] = max(col_widths[i], len(str(cell)))
@@ -239,14 +254,12 @@ async def export_alerts_csv(
         return "  |  ".join(str(c).ljust(col_widths[i]) for i, c in enumerate(cells))
 
     separator = "-+-".join("-" * (w + 2) for w in col_widths)
-
     buf = io.StringIO()
-    buf.write(_pad_row(HEADERS) + "\n")
+    buf.write(_pad_row(_EXPORT_HEADERS) + "\n")
     buf.write(separator + "\n")
     for row in data_rows:
         buf.write(_pad_row(row) + "\n")
     buf.seek(0)
-
     filename = f"rsentry-alerts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.txt"
     return StreamingResponse(
         iter([buf.getvalue()]),
