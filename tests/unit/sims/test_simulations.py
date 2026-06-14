@@ -30,6 +30,8 @@ class TestImports:
         assert hasattr(sim_qilin, "__file__")
     def test_sim_lockbit_importable(self):
         assert hasattr(sim_lockbit, "__file__")
+    def test_sim_all_importable(self):
+        assert hasattr(sim_all, "__file__")
 
 class TestSafety:
     def test_no_sigstop_in_sims(self):
