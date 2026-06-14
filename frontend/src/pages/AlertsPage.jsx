@@ -17,8 +17,9 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
   const [page,     setPage]     = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
-  const [acking,   setAcking]   = useState(false);
-  const [clearing, setClearing] = useState(false);
+  const [acking,      setAcking]      = useState(false);
+  const [clearing,    setClearing]    = useState(false);
+  const [exportOpen,  setExportOpen]  = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(10000);
 
   const fetchAll = useCallback(async () => {
@@ -171,18 +172,36 @@ export default function AlertsPage({ newAlert, liveAiResult, liveEvent }) {
           <i className="fa-solid fa-check-double" />
           Bulk ACK
         </button>
-        <button onClick={() => handleExport('csv')}
-          title="Export as CSV — opens in Excel / Google Sheets"
-          style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <i className="fa-solid fa-file-csv" />
-          CSV
-        </button>
-        <button onClick={() => handleExport('txt')}
-          title="Export as TXT — aligned table, readable in any text editor"
-          style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-          <i className="fa-solid fa-file-lines" />
-          TXT
-        </button>
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setExportOpen(v => !v)}
+            title="Export alerts"
+            style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <i className="fa-solid fa-file-export" />
+            Export
+            <i className="fa-solid fa-chevron-down" style={{ fontSize: 9 }} />
+          </button>
+          {exportOpen && (
+            <div
+              onMouseLeave={() => setExportOpen(false)}
+              style={{ position: 'absolute', top: 34, right: 0, background: 'var(--panel-2)', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden', zIndex: 50, minWidth: 140, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>
+              <button
+                onClick={() => { handleExport('csv'); setExportOpen(false); }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', background: 'none', border: 'none', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', cursor: 'pointer', textAlign: 'left' }}>
+                <i className="fa-solid fa-file-csv" style={{ color: 'var(--accent)', width: 14 }} />
+                CSV
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted)' }}>Excel</span>
+              </button>
+              <button
+                onClick={() => { handleExport('txt'); setExportOpen(false); }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', background: 'none', border: 'none', color: 'var(--text-2)', fontSize: 12, fontFamily: 'var(--sans)', cursor: 'pointer', textAlign: 'left', borderTop: '1px solid var(--border)' }}>
+                <i className="fa-solid fa-file-lines" style={{ color: 'var(--accent)', width: 14 }} />
+                TXT
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--muted)' }}>Readable</span>
+              </button>
+            </div>
+          )}
+        </div>
         <button onClick={handleClearAll} disabled={clearing}
           title="Clear all open alerts (mark as acknowledged)"
           style={{ height: 30, padding: '0 13px', borderRadius: 6, cursor: clearing ? 'not-allowed' : 'pointer', background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--crit)', fontSize: 12, fontFamily: 'var(--sans)', display: 'inline-flex', alignItems: 'center', gap: 7, opacity: clearing ? 0.6 : 1 }}>
