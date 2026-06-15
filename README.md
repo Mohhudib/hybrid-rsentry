@@ -30,6 +30,16 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 
 ---
 
+## Demo
+
+<div align="center">
+
+![Hybrid R-Sentry Demo](assets/demo.mp4)
+
+</div>
+
+---
+
 ## Features
 
 ### Detection Engine
