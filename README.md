@@ -34,7 +34,7 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 
 <div align="center">
 
-<video src="assets/demo.mp4" controls width="100%"></video>
+https://github.com/user-attachments/assets/d6dedcaf-5466-4a94-b23f-f0e5dc25ebd2
 
 </div>
 
