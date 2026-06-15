@@ -120,6 +120,48 @@ def test_benign_fpr_headline_flag():
     assert ben["bulk_ops"]["headline"] is False
 
 
+def test_completeness_flags_missing_and_errored():
+    # planned: 3 akira + 2 qilin; recorded: all akira, only 1 qilin, + 1 errored.
+    planned = {"mal_akira_000": "akira", "mal_akira_001": "akira", "mal_akira_002": "akira",
+               "mal_qilin_000": "qilin", "mal_qilin_001": "qilin"}
+    trials = [
+        _trial("mal_akira_000", 1, True, "akira", "rename"),
+        _trial("mal_akira_001", 1, True, "akira", "rename"),
+        _trial("mal_akira_002", 1, True, "akira", "rename"),
+        {**_trial("mal_qilin_000", 1, False, "qilin"), "error": "RuntimeError: boom"},  # errored
+        # mal_qilin_001 never ran → missing
+    ]
+    comp = metrics.completeness(trials, planned)
+    assert comp["planned"] == 5
+    assert comp["ran"] == 4              # 3 akira + 1 errored qilin record
+    assert comp["missing"] == 1          # mal_qilin_001
+    assert comp["errored"] == 1
+    assert comp["complete"] is False
+    assert comp["by_group"]["akira"] == {"planned": 3, "ran": 3, "missing": [], "errored": []}
+    assert comp["by_group"]["qilin"]["missing"] == ["mal_qilin_001"]
+    assert comp["by_group"]["qilin"]["errored"] == ["mal_qilin_000"]
+
+
+def test_completeness_complete_when_all_ran():
+    planned = {"mal_akira_000": "akira", "ben_idle_000": "idle"}
+    trials = [_trial("mal_akira_000", 1, True, "akira", "rename"),
+              _trial("ben_idle_000", 0, False, "idle")]
+    comp = metrics.completeness(trials, planned)
+    assert comp["complete"] is True and comp["missing"] == 0 and comp["errored"] == 0
+
+
+def test_errored_malicious_counts_as_FN_not_dropped():
+    # An errored malicious trial (detected=False) must enter the denominator as FN,
+    # never silently vanish — recall reflects the failure.
+    trials = [
+        _trial("mal_akira_000", 1, True, "akira", "rename"),
+        {**_trial("mal_akira_001", 1, False, "akira"), "error": "Timeout"},
+    ]
+    c = metrics.confusion_counts(trials)
+    assert c == {"TP": 1, "FP": 0, "TN": 0, "FN": 1}
+    assert math.isclose(metrics.recall(c), 0.5)
+
+
 def test_bootstrap_f1_deterministic_and_bounded():
     trials = _known_set()
     lo1, hi1 = metrics.bootstrap_f1_ci(trials, resamples=2000, seed=42)

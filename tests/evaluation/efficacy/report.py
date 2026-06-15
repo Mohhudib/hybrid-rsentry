@@ -25,10 +25,45 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from tests.evaluation.conftest import TRIALS_RAW, read_trials
+import json
+
+from tests.evaluation.conftest import RESULTS_DIR, TRIALS_RAW, read_trials
+from tests.evaluation.corpus import benign_workloads, malicious_samples
 from tests.evaluation.efficacy import metrics
 
 WARMUP_PREFIX = metrics.WARMUP_PREFIX
+# Static planned group names so a fully-missing group (0 records) is still shown.
+KNOWN_FAMILIES = list(malicious_samples.FAMILIES)
+KNOWN_BENIGN = ["high_entropy", "bulk_ops", "editor_save", "batch_rename", "idle"]
+
+
+def _load_completeness() -> "dict | None":
+    """Read completeness from the runner's confusion_matrix.json, if present."""
+    p = RESULTS_DIR / "confusion_matrix.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text()).get("_meta", {}).get("completeness")
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def completeness_banner(comp: "dict | None") -> str:
+    if comp is None:
+        return ("[EFFICACY] Completeness: UNKNOWN — no confusion_matrix.json with a "
+                "planned manifest. Run the sweep via runner.py (which records it) "
+                "so recorded-vs-planned can be reconciled.")
+    status = "COMPLETE" if comp["complete"] else "*** INCOMPLETE ***"
+    lines = [f"[EFFICACY] Completeness: {status}  "
+             f"(ran {comp['ran']}/{comp['planned']} planned; "
+             f"missing={comp['missing']}, errored={comp['errored']})"]
+    if not comp["complete"]:
+        lines.append("  Metrics below are over the RECORDED trials only — NOT the full planned N.")
+        for grp, g in sorted(comp["by_group"].items()):
+            if g["missing"] or g["errored"]:
+                lines.append(f"    {grp:<14} ran {g['ran']}/{g['planned']}  "
+                             f"missing={len(g['missing'])} errored={len(g['errored'])}")
+    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #
@@ -94,38 +129,59 @@ def core_metrics_table(trials: List[dict]) -> str:
                   ["Metric", "Formula", "Value", "95% CI"], rows)
 
 
-def per_family_table(trials: List[dict]) -> str:
+def _ran_planned(comp: "dict | None", group: str) -> str:
+    if comp and group in comp.get("by_group", {}):
+        g = comp["by_group"][group]
+        return f"{g['ran']}/{g['planned']}"
+    return "-"
+
+
+def per_family_table(trials: List[dict], comp: "dict | None" = None) -> str:
     fam = metrics.per_family_rates(trials)
     rows = []
-    for family, d in fam.items():
-        layers = ", ".join(f"{k}:{v}" for k, v in sorted(d["layers"].items())) or "-"
-        rows.append([family, str(d["n"]), str(d["tp"]), _fmt(d["recall"]),
-                     _ci(d["ci"]), d["modal_layer"] or "-", layers])
-    if not rows:
-        rows = [["(none)", "0", "0", "n/a", "n/a", "-", "-"]]
+    # Iterate the STATIC known family list so a fully-missing family (0 records)
+    # is shown explicitly as MISSING instead of silently absent.
+    for family in KNOWN_FAMILIES:
+        d = fam.get(family)
+        rp = _ran_planned(comp, family)
+        if d is None:
+            rows.append([family + "  ⚠ MISSING", "0", "0", "n/a", "n/a", "-", "-", rp])
+        else:
+            layers = ", ".join(f"{k}:{v}" for k, v in sorted(d["layers"].items())) or "-"
+            incomplete = comp and comp.get("by_group", {}).get(family, {}).get("missing")
+            label = family + ("  ⚠ INCOMPLETE" if incomplete else "")
+            rows.append([label, str(d["n"]), str(d["tp"]), _fmt(d["recall"]),
+                         _ci(d["ci"]), d["modal_layer"] or "-", layers, rp])
     return _table("[EFFICACY] Per-Family Detection Rate",
                   ["Family", "N", "Detected", "Rate", "95% CI",
-                   "Modal Layer", "Layer Distribution"], rows)
+                   "Modal Layer", "Layer Distribution", "Ran/Planned"], rows)
 
 
-def benign_breakdown_table(trials: List[dict]) -> str:
+def benign_breakdown_table(trials: List[dict], comp: "dict | None" = None) -> str:
     ben = metrics.benign_fpr(trials)
     rows = []
-    for cls, d in ben.items():
-        mark = "  *** HEADLINE (compression/encryption)" if d["headline"] else ""
-        rows.append([cls + mark, str(d["n"]), str(d["fp"]), _fmt(d["fpr"]), _ci(d["ci"])])
-    if not rows:
-        rows = [["(none)", "0", "0", "n/a", "n/a"]]
+    for cls in KNOWN_BENIGN:
+        d = ben.get(cls)
+        rp = _ran_planned(comp, cls)
+        headline = (cls == "high_entropy")
+        mark = "  *** HEADLINE (compression/encryption)" if headline else ""
+        if d is None:
+            rows.append([cls + "  ⚠ MISSING" + mark, "0", "0", "n/a", "n/a", rp])
+        else:
+            rows.append([cls + mark, str(d["n"]), str(d["fp"]),
+                         _fmt(d["fpr"]), _ci(d["ci"]), rp])
     return _table("[EFFICACY] Benign Breakdown  (FPR per class; lower is better)",
-                  ["Class", "N", "FP", "FPR", "95% CI"], rows)
+                  ["Class", "N", "FP", "FPR", "95% CI", "Ran/Planned"], rows)
 
 
 def render(trials: List[dict]) -> str:
+    comp = _load_completeness()
     return "\n\n".join([
+        completeness_banner(comp),
         confusion_matrix_table(trials),
         core_metrics_table(trials),
-        per_family_table(trials),
-        benign_breakdown_table(trials),
+        per_family_table(trials, comp),
+        benign_breakdown_table(trials, comp),
     ])
 
 

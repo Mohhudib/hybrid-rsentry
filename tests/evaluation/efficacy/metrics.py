@@ -204,6 +204,44 @@ def per_family_rates(trials: List[dict]) -> Dict[str, dict]:
     return out
 
 
+def completeness(trials: List[dict], planned: Dict[str, str]) -> dict:
+    """Reconcile recorded trials against the PLANNED manifest so missing trials
+    can never silently vanish from the denominator.
+
+    planned: {sample_id: group_name} for every trial the sweep was SUPPOSED to
+    run. Returns per-group and global ran/planned/missing/errored counts and a
+    ``complete`` flag. A run with any missing or errored trial is NOT complete,
+    and any claim like recall=1.000 must be qualified by this.
+    """
+    plan = _plan_trials(trials)
+    ran_ids = {t.get("sample_id") for t in plan}
+    err_ids = {t.get("sample_id") for t in plan if t.get("error")}
+    planned_ids = set(planned)
+
+    by_group: Dict[str, dict] = {}
+    for sid, grp in planned.items():
+        g = by_group.setdefault(grp, {"planned": 0, "ran": 0, "missing": [], "errored": []})
+        g["planned"] += 1
+        if sid in ran_ids:
+            g["ran"] += 1
+            if sid in err_ids:
+                g["errored"].append(sid)
+        else:
+            g["missing"].append(sid)
+
+    total_ran = len(ran_ids & planned_ids)
+    total_err = len(err_ids & planned_ids)
+    total_missing = len(planned_ids) - total_ran
+    return {
+        "by_group": by_group,
+        "planned": len(planned_ids),
+        "ran": total_ran,
+        "missing": total_missing,
+        "errored": total_err,
+        "complete": (total_missing == 0 and total_err == 0),
+    }
+
+
 def benign_fpr(trials: List[dict]) -> Dict[str, dict]:
     """Per benign class: false-positive rate + Wilson CI. The high-entropy
     (compression/encryption) class is flagged ``headline=True`` (§1.3).
