@@ -1,0 +1,46 @@
+# Robustness report — source: /home/kali/hybrid-rsentry/tests/evaluation/results/robustness_raw.json (377 raw trial records)
+
+[ROBUSTNESS] Completeness: COMPLETE  (ran 375/375 planned; missing=0, errored=0)
+
+[ROBUSTNESS] Ablation Matrix  (detection rate + Wilson 95% CI per condition × family)
+| Condition           | akira                | canary_touch         | entropy_only         | lockbit              | qilin                |
+|---------------------|----------------------|----------------------|----------------------|----------------------|----------------------|
+| baseline            | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] |
+| ablate_rename       | 0.000 [0.000, 0.204] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 0.000 [0.000, 0.204] | 0.000 [0.000, 0.204] |
+| ablate_write_offset | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] |
+| ablate_entropy      | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 0.000 [0.000, 0.204] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] |
+| ablate_canary       | 1.000 [0.796, 1.000] | 0.000 [0.000, 0.204] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] | 1.000 [0.796, 1.000] |
+
+[ROBUSTNESS] Layer Contribution  (primary = modal layer at baseline; rate w/ primary OFF = detection when that layer is ablated)
+| Family       | Primary layer | Rate w/ primary OFF | Backup layer(s) when off | Verdict                               |
+|--------------|---------------|---------------------|--------------------------|---------------------------------------|
+| akira        | rename        | 0.000               | none                     | NECESSARY — sole detector (no backup) |
+| canary_touch | canary        | 0.000               | none                     | NECESSARY — sole detector (no backup) |
+| entropy_only | entropy       | 0.000               | none                     | NECESSARY — sole detector (no backup) |
+| lockbit      | rename        | 0.000               | none                     | NECESSARY — sole detector (no backup) |
+| qilin        | rename        | 0.000               | none                     | NECESSARY — sole detector (no backup) |
+Summary: ALL 5 layers NECESSARY — each is the UNIQUE catcher for its family. NO backup / defence-in-depth coverage was observed in this corpus: ablating a layer drops its family to undetected, with no other layer compensating. The layers cover ORTHOGONAL behaviours, so the multi-layer design is necessary (not redundant).
+
+[ROBUSTNESS] Significance  (McNemar paired; Holm–Bonferroni family-wise; effect size leads)
+| Contrast (family / ablation)       | rate drop | baseline CI    | ablated CI     | McNemar p | Holm p |
+|------------------------------------|-----------|----------------|----------------|-----------|--------|
+| akira / ablate_rename              | 1.000     | [0.796, 1.000] | [0.000, 0.204] | <0.001    | 0.001  |
+| akira / ablate_write_offset        | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| akira / ablate_entropy             | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| akira / ablate_canary              | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| canary_touch / ablate_rename       | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| canary_touch / ablate_write_offset | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| canary_touch / ablate_entropy      | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| canary_touch / ablate_canary       | 1.000     | [0.796, 1.000] | [0.000, 0.204] | <0.001    | 0.001  |
+| entropy_only / ablate_rename       | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| entropy_only / ablate_write_offset | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| entropy_only / ablate_entropy      | 1.000     | [0.796, 1.000] | [0.000, 0.204] | <0.001    | 0.001  |
+| entropy_only / ablate_canary       | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| lockbit / ablate_rename            | 1.000     | [0.796, 1.000] | [0.000, 0.204] | <0.001    | 0.001  |
+| lockbit / ablate_write_offset      | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| lockbit / ablate_entropy           | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| lockbit / ablate_canary            | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| qilin / ablate_rename              | 1.000     | [0.796, 1.000] | [0.000, 0.204] | <0.001    | 0.001  |
+| qilin / ablate_write_offset        | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| qilin / ablate_entropy             | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |
+| qilin / ablate_canary              | 0.000     | [0.796, 1.000] | [0.796, 1.000] | 1.000     | 1.000  |

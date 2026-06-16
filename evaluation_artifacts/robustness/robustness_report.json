@@ -1,0 +1,348 @@
+{
+  "_meta": {
+    "n_trials": 375,
+    "n_per_family": 15,
+    "conditions": [
+      "baseline",
+      "ablate_rename",
+      "ablate_write_offset",
+      "ablate_entropy",
+      "ablate_canary"
+    ],
+    "completeness": {
+      "by_group": {
+        "baseline": {
+          "planned": 75,
+          "ran": 75,
+          "missing": [],
+          "errored": []
+        },
+        "ablate_rename": {
+          "planned": 75,
+          "ran": 75,
+          "missing": [],
+          "errored": []
+        },
+        "ablate_write_offset": {
+          "planned": 75,
+          "ran": 75,
+          "missing": [],
+          "errored": []
+        },
+        "ablate_entropy": {
+          "planned": 75,
+          "ran": 75,
+          "missing": [],
+          "errored": []
+        },
+        "ablate_canary": {
+          "planned": 75,
+          "ran": 75,
+          "missing": [],
+          "errored": []
+        }
+      },
+      "planned": 375,
+      "ran": 375,
+      "missing": 0,
+      "errored": 0,
+      "complete": true
+    },
+    "complete": true,
+    "generated": "2026-06-16T20:29:02+00:00"
+  },
+  "ablation_table": {
+    "baseline": {
+      "akira": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "qilin": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "lockbit": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "entropy_only": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "canary_touch": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      }
+    },
+    "ablate_rename": {
+      "akira": {
+        "n": 15,
+        "detected": 0,
+        "rate": 0.0,
+        "ci": [
+          0.0,
+          0.20388330103584854
+        ]
+      },
+      "qilin": {
+        "n": 15,
+        "detected": 0,
+        "rate": 0.0,
+        "ci": [
+          0.0,
+          0.20388330103584854
+        ]
+      },
+      "lockbit": {
+        "n": 15,
+        "detected": 0,
+        "rate": 0.0,
+        "ci": [
+          0.0,
+          0.20388330103584854
+        ]
+      },
+      "entropy_only": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "canary_touch": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      }
+    },
+    "ablate_write_offset": {
+      "akira": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "qilin": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "lockbit": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "entropy_only": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "canary_touch": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      }
+    },
+    "ablate_entropy": {
+      "akira": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "qilin": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "lockbit": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "entropy_only": {
+        "n": 15,
+        "detected": 0,
+        "rate": 0.0,
+        "ci": [
+          0.0,
+          0.20388330103584854
+        ]
+      },
+      "canary_touch": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      }
+    },
+    "ablate_canary": {
+      "akira": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "qilin": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "lockbit": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "entropy_only": {
+        "n": 15,
+        "detected": 15,
+        "rate": 1.0,
+        "ci": [
+          0.7961166989641514,
+          0.9999999999999999
+        ]
+      },
+      "canary_touch": {
+        "n": 15,
+        "detected": 0,
+        "rate": 0.0,
+        "ci": [
+          0.0,
+          0.20388330103584854
+        ]
+      }
+    }
+  },
+  "layer_contribution": {
+    "akira": {
+      "primary": "rename",
+      "primary_layers": {
+        "rename": 15
+      },
+      "ablate_primary_condition": "ablate_rename",
+      "rate_when_primary_off": 0.0,
+      "backup_layers": {},
+      "necessary": true,
+      "redundant": false
+    },
+    "canary_touch": {
+      "primary": "canary",
+      "primary_layers": {
+        "canary": 15
+      },
+      "ablate_primary_condition": "ablate_canary",
+      "rate_when_primary_off": 0.0,
+      "backup_layers": {},
+      "necessary": true,
+      "redundant": false
+    },
+    "entropy_only": {
+      "primary": "entropy",
+      "primary_layers": {
+        "entropy": 15
+      },
+      "ablate_primary_condition": "ablate_entropy",
+      "rate_when_primary_off": 0.0,
+      "backup_layers": {},
+      "necessary": true,
+      "redundant": false
+    },
+    "lockbit": {
+      "primary": "rename",
+      "primary_layers": {
+        "rename": 15
+      },
+      "ablate_primary_condition": "ablate_rename",
+      "rate_when_primary_off": 0.0,
+      "backup_layers": {},
+      "necessary": true,
+      "redundant": false
+    },
+    "qilin": {
+      "primary": "rename",
+      "primary_layers": {
+        "rename": 15
+      },
+      "ablate_primary_condition": "ablate_rename",
+      "rate_when_primary_off": 0.0,
+      "backup_layers": {},
+      "necessary": true,
+      "redundant": false
+    }
+  }
+}
