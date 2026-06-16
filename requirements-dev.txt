@@ -10,7 +10,7 @@ click==8.4.0
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
-coverage==7.14.0
+coverage==7.14.1
 fastapi==0.136.1
 freezegun==1.5.5
 h11==0.16.0
