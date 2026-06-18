@@ -259,7 +259,9 @@ Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 | `NVIDIA_API_KEY` | Yes* | API key for live event AI analysis (also readable as `AI_API_KEY`) |
 | `NVIDIA_API_KEY_ALERTS` | Yes* | API key for on-demand alert AI analysis (also readable as `AI_API_KEY_ALERTS`) |
 | `AI_API_KEY_CEREBRAS` | No | Cerebras API key — if set, becomes the primary AI provider (fastest); NVIDIA/Groq used as fallback |
-
+| `GROQ_API_KEY` | No | Groq API key — auto-detected by `gsk_` prefix; used as primary AI provider if set |
+| `GROQ_BASE_URL` | No | Groq base URL (default: `https://api.groq.com/openai/v1`) |
+| `GROQ_MODEL` | No | Groq model name (e.g. `llama-3.3-70b-versatile`) |
 *Groq keys are also accepted — auto-detected by the `gsk_` prefix.
 
 ---
