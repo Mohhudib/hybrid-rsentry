@@ -5,7 +5,7 @@ import NodeSphere from '../three/NodeSphere';
 import Particles from '../three/Particles';
 
 const STATS = [
-  { label: 'avg detection', value: 12,   suffix: 'ms', prefix: '' },
+  { label: 'avg detection', value: 675,  suffix: 'μs', prefix: '' },
   { label: 'false positives', value: 0,  suffix: '',   prefix: '' },
   { label: 'detection layers', value: 4, suffix: '',   prefix: '' },
   { label: 'containment',  value: 100,   suffix: '%',  prefix: '' },
@@ -89,9 +89,6 @@ export default function Hero() {
           style={{ border: '1px solid rgba(0,255,136,0.3)' }}
         >
           <span className="w-2 h-2 rounded-full bg-[#00ff88] animate-blink" />
-          <span className="font-mono text-[11px] tracking-widest text-gray-300 uppercase">
-            Final Year Project · Kali Linux 2024
-          </span>
         </motion.div>
 
         {/* H1 — Glitch */}
