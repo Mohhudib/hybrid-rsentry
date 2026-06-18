@@ -124,82 +124,106 @@ function MarkovIcon({ color }) {
   );
 }
 
-/* ── CSS Padlock icon ── */
-function PadlockIcon({ color, isHovered }) {
+/* ── eBPF kernel sensor icon ── */
+function BPFIcon({ color }) {
   return (
-    <div className="w-full h-full flex items-center justify-center">
-      <motion.div
-        animate={{ scale: isHovered ? [1, 1.15, 1] : 1, rotate: isHovered ? [0, -8, 0] : 0 }}
-        transition={{ duration: 0.4 }}
-      >
-        <svg viewBox="0 0 60 80" width="70" height="90">
-          {/* shackle */}
-          <motion.path
-            d="M15 35 Q15 10 30 10 Q45 10 45 35"
-            fill="none" stroke={color} strokeWidth="5" strokeLinecap="round"
-            animate={isHovered ? { d: 'M15 35 Q15 20 30 20 Q45 20 45 35' } : { d: 'M15 35 Q15 10 30 10 Q45 10 45 35' }}
-            transition={{ duration: 0.3 }}
-            style={{ filter: `drop-shadow(0 0 4px ${color})` }}
-          />
-          {/* body */}
-          <rect x="8" y="33" width="44" height="34" rx="5" fill={color} opacity="0.85"
-            style={{ filter: `drop-shadow(0 0 8px ${color})` }} />
-          {/* keyhole */}
-          <circle cx="30" cy="47" r="5" fill="#000010" />
-          <rect x="27" y="47" width="6" height="8" rx="2" fill="#000010" />
-        </svg>
-      </motion.div>
+    <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+      <svg viewBox="0 0 100 100" className="w-full h-full p-3">
+        {/* Outer ring */}
+        <motion.circle
+          cx="50" cy="50" r="38"
+          fill="none" stroke={color} strokeWidth="0.8"
+          animate={{ strokeOpacity: [0.2, 0.5, 0.2] }}
+          transition={{ duration: 3, repeat: Infinity }}
+        />
+        {/* 5 syscall event lines */}
+        {[0, 1, 2, 3, 4].map((i) => {
+          const angle = ((i / 5) * 360 - 90) * (Math.PI / 180);
+          const x1 = 50 + Math.cos(angle) * 38;
+          const y1 = 50 + Math.sin(angle) * 38;
+          const x2 = 50 + Math.cos(angle) * 22;
+          const y2 = 50 + Math.sin(angle) * 22;
+          return (
+            <motion.line
+              key={i}
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={color} strokeWidth="1.5"
+              animate={{ opacity: [0.2, 1, 0.2] }}
+              transition={{ duration: 1.5, delay: i * 0.3, repeat: Infinity }}
+              style={{ filter: `drop-shadow(0 0 2px ${color})` }}
+            />
+          );
+        })}
+        {/* Inner hex (kernel gate) */}
+        {[18, 13].map((r, i) => {
+          const pts = Array.from({ length: 6 }, (_, j) => {
+            const a = (j * 60 - 30) * (Math.PI / 180);
+            return `${50 + r * Math.cos(a)},${50 + r * Math.sin(a)}`;
+          }).join(' ');
+          return (
+            <motion.polygon
+              key={i}
+              points={pts}
+              fill={i === 1 ? `${color}20` : 'none'}
+              stroke={color}
+              strokeWidth={i === 0 ? 1.5 : 0}
+              animate={{ opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2, delay: i * 0.5, repeat: Infinity }}
+              style={{ filter: i === 0 ? `drop-shadow(0 0 4px ${color})` : 'none' }}
+            />
+          );
+        })}
+        {/* Center dot */}
+        <motion.circle
+          cx="50" cy="50" r="3.5"
+          fill={color}
+          animate={{ r: [3, 4.5, 3] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          style={{ filter: `drop-shadow(0 0 4px ${color})` }}
+        />
+      </svg>
     </div>
   );
 }
 
-/* ── Prediction counter ── */
-function PredictionCounter() {
-  const [val, setVal] = useState(87);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setVal(v => Math.max(60, Math.min(97, Math.round(v + (Math.random() - 0.45) * 3))));
-    }, 1200);
-    return () => clearInterval(id);
-  }, []);
+/* ── Canary prefix badges ── */
+function CanaryPrefixBadges() {
   return (
-    <div className="font-mono text-xs text-center mt-2">
-      <span className="text-gray-500">Prediction confidence: </span>
-      <motion.span
-        key={val}
-        initial={{ opacity: 0, y: -4 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="font-bold"
-        style={{ color: '#00f5ff' }}
-      >
-        {val}%
-      </motion.span>
+    <div className="flex gap-1 flex-wrap mt-2 justify-center">
+      {['AAA_', 'aaa_', 'ZZZ_', 'zzz_'].map(prefix => (
+        <span
+          key={prefix}
+          className="font-mono text-[9px] px-2 py-0.5 rounded font-bold"
+          style={{ background: '#00f5ff18', border: '1px solid #00f5ff', color: '#00f5ff' }}
+        >
+          {prefix}
+        </span>
+      ))}
     </div>
   );
 }
 
-/* ── SIGSTOP step badges ── */
-function SigstopBadges() {
-  const steps  = ['FREEZE', 'CAPTURE', 'BLOCK', 'KILL'];
-  const colors = ['#ff5722', '#ff9800', '#ff1744', '#b71c1c'];
+/* ── eBPF syscall badges ── */
+function SyscallBadges() {
+  const syscalls = ['openat', 'vfs_write', 'unlink', 'rename', 'execve'];
   const [active, setActive] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setActive(a => (a + 1) % steps.length), 700);
+    const id = setInterval(() => setActive(a => (a + 1) % syscalls.length), 700);
     return () => clearInterval(id);
   }, []);
   return (
     <div className="flex gap-1 flex-wrap mt-2 justify-center">
-      {steps.map((s, i) => (
+      {syscalls.map((s, i) => (
         <motion.span
           key={s}
           animate={active === i
-            ? { scale: 1.1, boxShadow: `0 0 12px ${colors[i]}` }
+            ? { scale: 1.1, boxShadow: '0 0 12px #ff174480' }
             : { scale: 1, boxShadow: 'none' }}
           className="font-mono text-[9px] px-2 py-0.5 rounded-full font-bold transition-colors duration-300"
           style={{
-            background: active === i ? colors[i] : 'transparent',
-            border: `1px solid ${colors[i]}`,
-            color: active === i ? '#000' : colors[i],
+            background: active === i ? '#ff1744' : 'transparent',
+            border: '1px solid #ff1744',
+            color: active === i ? '#000' : '#ff1744',
           }}
         >
           {s}
@@ -240,14 +264,14 @@ const CARDS = [
   {
     id: 'canary', title: 'Adaptive Canary Repositioning', color: '#00f5ff',
     icon: () => <MarkovIcon color="#00f5ff" />,
-    body: "15 AAA_ canary files move themselves. A Markov transition matrix learns the ransomware's traversal pattern and predicts its next directory — placing a canary there before it arrives.",
-    extra: <PredictionCounter />,
+    body: "Bait files with realistic content and backdated timestamps placed across every monitored directory under 4 naming prefixes. Any access fires an instant CRITICAL alert — in eBPF mode the kernel returns −EPERM inline before the operation completes.",
+    extra: <CanaryPrefixBadges />,
   },
   {
-    id: 'sigstop', title: 'SIGSTOP Containment', color: '#ff1744',
-    icon: (hov) => <PadlockIcon color="#ff1744" isHovered={hov} />,
-    body: 'Four steps. No escape. SIGSTOP freezes execution → /proc forensics captured → iptables cuts all network traffic → SIGKILL ends the process. Total time: under 200ms.',
-    extra: <SigstopBadges />,
+    id: 'ebpf', title: 'eBPF Kernel Sensor', color: '#ff1744',
+    icon: () => <BPFIcon color="#ff1744" />,
+    body: '5 syscalls tracked per process — openat, vfs_write, unlink, rename, execve — scored in a BPF map. When threshold is crossed, the BPF-LSM hook returns −EPERM in nanoseconds: the process is denied at the kernel before any file is modified.',
+    extra: <SyscallBadges />,
   },
 ];
 

@@ -24,9 +24,9 @@ const NODES = [
     id: 'lineage',
     emoji: '🧬',
     label: 'LINEAGE SCORER',
-    latency: '< 5ms',
+    latency: '< 20ms',
     color: '#b537f2',
-    detail: 'Scores process ancestry: parent name, spawn path, binary SHA-256. /tmp spawn = +50 points.',
+    detail: 'Scores process ancestry against 416K dpkg hashes loaded at startup. Binary mismatch, /tmp spawn, or no TTY each add weight to a 0–100 score.',
     shake: false,
   },
   {

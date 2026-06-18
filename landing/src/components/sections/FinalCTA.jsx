@@ -78,7 +78,7 @@ export default function FinalCTA() {
           className="font-heading font-bold mb-12 glow-cyan"
           style={{ fontSize: 'clamp(1.6rem, 4vw, 3rem)', color: '#00f5ff' }}
         >
-          Hybrid R-Sentry would have stopped it in 12ms.
+          Hybrid R-Sentry would have stopped it in 675μs.
         </motion.p>
 
         <motion.div
