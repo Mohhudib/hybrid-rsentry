@@ -1419,6 +1419,20 @@ python -m simulations.sim_lockbit
 **Why percent-encryption matters:** Qilin is designed for maximum damage before detection. It tries to encrypt as much as possible in the first wave. The canary layer (any canary hit = CRITICAL) must fire before the `encrypt_pct` threshold is reached.
 
 ---
+## DEMO TOOLS
+
+### `demo_forensic.py` — Forensic Walkthrough Demo
+
+Forensic demonstration tool with 3 phases:
+1. **BEFORE** — seeds a persistent corpus, prints name/size/content preview/entropy/age/SHA-256 per file
+2. **ATTACK** — launches a fresh agent (enforce + LSM) and runs the chosen family's simulation, printing detection + containment timeline
+3. **AFTER** — re-scans the same corpus, reports renames, in-place encryption, entropy jumps, SHA changes, canary survival
+
+Unlike the evaluation harness, this uses a persistent directory so artifacts
+remain for inspection. Agent, iptables, and cgroup cleanup still run fully —
+only the corpus directory itself persists.
+
+---
 
 ## TESTS
 
