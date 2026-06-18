@@ -142,7 +142,23 @@ All simulations support `--validate-defense` to check that containment fired:
 ```bash
 python simulations/sim_lockbit.py --validate-defense
 ```
+---
 
+## Run the forensic walkthrough demo (persistent artifacts for inspection)
+
+Unlike the simulations above (which clean up automatically), `demo_forensic.py`
+leaves a persistent corpus on disk so you can inspect before/after state:
+
+```bash
+sudo -E ./venv/bin/python demo_forensic.py <family>
+```
+
+Families: `akira`, `qilin`, `lockbit`, `entropy_only`, `canary_touch`, `writeoffset_only`
+
+Cleanup when done:
+```bash
+sudo rm -rf /tmp/rsentry_demo
+```
 ---
 
 ## Diagnostic commands
