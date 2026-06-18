@@ -124,6 +124,11 @@ python simulations/sim_akira.py
 # Qilin — percent-mode (40 % of corpus), 7-char random extension
 python simulations/sim_qilin.py
 
+# Write-offset isolation — proves write-offset layer necessity independently
+python simulations/sim_writeoffset_only.py
+
+# Run all simulations sequentially — full detection coverage validation
+python simulations/sim_all.py
 # Generic patterns (earlier traversal sims):
 python simulations/sim_random.py --delay 0.1
 python simulations/sim_depth.py  --delay 0.1
