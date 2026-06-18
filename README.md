@@ -349,7 +349,19 @@ pytest tests/test_lockbit.py -v
 All 4 targets pass: files-before-detection < 3, latency < 500 ms, FP = 0%, coverage = 100%.
 
 ---
+## Forensic Walkthrough Demo
 
+`demo_forensic.py` runs a full BEFORE/ATTACK/AFTER walkthrough against a
+persistent corpus, leaving artifacts on disk for inspection:
+
+    sudo -E ./venv/bin/python demo_forensic.py <family>
+
+Families: `akira`, `qilin`, `lockbit`, `entropy_only`, `canary_touch`, `writeoffset_only`
+
+Cleanup when done:
+
+    sudo rm -rf /tmp/rsentry_demo
+---
 ## Detection Flow
 
 ```
