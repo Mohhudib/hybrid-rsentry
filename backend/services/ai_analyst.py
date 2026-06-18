@@ -24,7 +24,7 @@ NVIDIA_BASE_URL   = "https://integrate.api.nvidia.com/v1"
 NVIDIA_MODEL      = "meta/llama-3.1-70b-instruct"
 CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
 CEREBRAS_MODEL    = "llama3.1-70b"
-NVIDIA_RATE_DELAY   = 3.0  # أبطأ
+NVIDIA_RATE_DELAY   = 3.0  #slower
 
 # Rate limit Redis keys — one per provider
 _RATE_KEY_NVIDIA   = "rsentry:nvidia_last_call"
@@ -105,7 +105,7 @@ def _get_client_cerebras():
 
 
 def _call_with_fallback(clients: list, prompt: str) -> dict:
-    """يجرب كل client بالترتيب، لو فشل يروح للثاني."""
+    """Tries each client in order; falls through to the next on failure."""
     last_exc = None
     for i, client in enumerate(clients):
         if client is None:
@@ -113,13 +113,13 @@ def _call_with_fallback(clients: list, prompt: str) -> dict:
         try:
             return _call_nvidia(client, prompt)
         except AuthenticationError:
-            # AUTH_ERROR = مشكلة في الـ key، نوقف فوراً ما نكمل
+            # AUTH_ERROR = problem with the key, stop immediately, don't continue
             logger.error("Client %d auth failed — invalid key, stopping fallback", i + 1)
             raise
         except RateLimitError as e:
             logger.warning("Client %d rate limited, trying next", i + 1)
             last_exc = e
-            time.sleep(1)  # انتظر قليل قبل الـ client الثاني
+            time.sleep(1)  time.sleep(1)  # wait briefly before the second client
         except APIConnectionError as e:
             logger.warning("Client %d connection failed, trying next", i + 1)
             last_exc = e
