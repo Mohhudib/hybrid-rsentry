@@ -11,7 +11,7 @@
 [![Celery](https://img.shields.io/badge/Celery-5.x-37814A?style=flat-square)](https://docs.celeryq.dev)
 [![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis)](https://redis.io)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql)](https://postgresql.org)
-[![Tests](https://img.shields.io/badge/tests-182%20passing-brightgreen?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen?style=flat-square)](#testing)
 [![Coverage](https://img.shields.io/badge/coverage-89%25-brightgreen?style=flat-square)](#testing)
 [![Version](https://img.shields.io/badge/version-v2.2.0-blue?style=flat-square)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
