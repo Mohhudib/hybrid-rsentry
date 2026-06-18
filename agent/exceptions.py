@@ -56,7 +56,7 @@ WHITELISTED_EXTENSIONS = {
 
 
 # ── Smart temp-dir filter ─────────────────────────────────────────
-# Temp dirs بتضل whitelisted، إلا لو الملف بامتداد بستهدفه الـ ransomware
+# Temp dirs stay whitelisted, unless the file has an extension ransomware targets
 TEMP_DIR_PREFIXES = ("/tmp/", "/var/tmp/", "/dev/shm/")
 
 SUSPICIOUS_EXTENSIONS_IN_TEMP = {
@@ -94,7 +94,7 @@ def is_whitelisted_process(process_name: str) -> bool:
 
 
 def is_whitelisted(path: str, process_name: str = "") -> bool:
-    # Strong override: suspicious-in-temp مش whitelisted حتى لو الـ process معروف
+    # Strong override: suspicious-in-temp is not whitelisted even if the process is known
     if _is_suspicious_in_temp(path):
         return False
     if is_whitelisted_path(path):
