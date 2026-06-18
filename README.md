@@ -327,6 +327,7 @@ hybrid-rsentry/
 ├── .github/workflows/           # CI lint + Docker build + landing page deploy
 ├── start.sh                     # One-command startup script
 ├── test_event.sh                # One-command pipeline test (sends CANARY_TOUCHED event)
+├── demo_forensic.py             # Forensic walkthrough demo — before/attack/after, leaves artifacts on disk
 └── docker-compose.yml
 ```
 
