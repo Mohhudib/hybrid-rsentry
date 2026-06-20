@@ -2,7 +2,7 @@
 watchdog==6.0.0
 networkx==3.6.1
 scipy>=1.14.0
-numpy>=2.4.4
+numpy>=2.4.6
 pandas>=2.2.2
 psutil>=6.0.0
 
