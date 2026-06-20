@@ -76,7 +76,7 @@ class EntropyEngine:
 
     MAX_TRACKED_FILES = 5000   # upper limit to avoid a memory leak
 
-   def __init__(
+    def __init__(
         self,
         spike_threshold: float = ENTROPY_SPIKE_THRESHOLD,
         abs_threshold: float = HIGH_ENTROPY_ABSOLUTE,
