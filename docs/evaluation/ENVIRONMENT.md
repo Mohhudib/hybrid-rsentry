@@ -62,7 +62,7 @@ matches malicious encryption, yet yields FPR = 0.000.
 
 ```bash
 # 1. evaluation venv (analysis stack)
-python3.11 -m venv venv && ./venv/bin/pip install -r evaluation_artifacts/requirements-frozen.txt
+python3.11 -m venv venv && ./venv/bin/pip install -r docs/evaluation/requirements-frozen.txt
 # 2. system deps for the agent (eBPF)
 sudo apt install -y bpfcc-tools python3-bpfcc   # provides bcc to system python3
 # 3. run an axis (example: efficacy), privileged

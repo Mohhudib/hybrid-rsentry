@@ -14,7 +14,7 @@ The evaluation answers three questions, each its own axis:
 | Efficiency | How fast, and what does it cost? | MTTD ~150 ms; overhead 1.70 µs/op | 30 |
 | Robustness | Is every detection layer necessary? | All 4 layers necessary, Holm p=0.001 | 15 |
 
-All raw trial data is archived under `evaluation_artifacts/` so every published
+All raw trial data is archived under `docs/evaluation/` so every published
 number can be recomputed from source.
 
 ## Common methodology
