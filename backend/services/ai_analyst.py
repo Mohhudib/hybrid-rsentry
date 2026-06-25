@@ -119,7 +119,7 @@ def _call_with_fallback(clients: list, prompt: str) -> dict:
         except RateLimitError as e:
             logger.warning("Client %d rate limited, trying next", i + 1)
             last_exc = e
-            time.sleep(1)  time.sleep(1)  # wait briefly before the second client
+            time.sleep(1)  # wait briefly before the second client
         except APIConnectionError as e:
             logger.warning("Client %d connection failed, trying next", i + 1)
             last_exc = e

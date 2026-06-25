@@ -13,7 +13,7 @@ export default function AlertFeed({ newAlert }) {
 
   const fetchAlerts = useCallback(async () => {
     try {
-      const params = { acknowledged: false, limit: 100, ...(filter !== 'ALL' ? { severity: filter } : {}) };
+      const params = { acknowledged: false, limit: 500, ...(filter !== 'ALL' ? { severity: filter } : {}) };
       const { data } = await getAlerts(params);
       setAlerts(data);
     } catch (err) {

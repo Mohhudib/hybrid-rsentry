@@ -9,6 +9,7 @@ import FilesystemPage from './pages/FilesystemPage';
 import AIAnalystPage from './pages/AIAnalystPage';
 import ExceptionsPage from './pages/ExceptionsPage';
 import { useWebSocket } from './hooks/useWebSocket';
+import api from './api/client';
 
 const AI_EXPIRY_MS = 4 * 60 * 1000;
 const AI_PENDING_TIMEOUT_MS = 45 * 1000;
@@ -49,6 +50,13 @@ export default function App() {
   const [alertBadgeCount, setAlertBadgeCount] = useState(0);
   const [liveAlert, setLiveAlert] = useState(null);
   const [liveEvent, setLiveEvent] = useState(null);
+
+  // Seed the badge with the real unacknowledged count on mount
+  useEffect(() => {
+    api.get('/api/alerts/counts')
+      .then(r => setAlertBadgeCount(r.data.TOTAL ?? 0))
+      .catch(() => {});
+  }, []);
 
   // AI state lifted here so it persists across page navigation
   const [aiAnalyses, setAiAnalyses] = useState([]);

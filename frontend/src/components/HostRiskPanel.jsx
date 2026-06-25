@@ -93,8 +93,8 @@ export default function HostRiskPanel() {
                 )}
               </div>
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <p style={{ fontSize: 10, color: 'var(--muted)', margin: 0 }}>Total Alerts</p>
-                <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', margin: '2px 0 0' }}>{risk?.total_alert_count ?? risk?.alert_count ?? '—'}</p>
+                <p style={{ fontSize: 10, color: 'var(--muted)', margin: 0 }}>Open Alerts</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', margin: '2px 0 0' }}>{risk?.alert_count ?? '—'}</p>
               </div>
             </div>
           );

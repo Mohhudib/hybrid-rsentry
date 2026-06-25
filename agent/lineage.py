@@ -48,7 +48,7 @@ WEIGHT_SUSPICIOUS_PARENT = 30
 WEIGHT_SUSPICIOUS_PATH = 25
 WEIGHT_DEEP_ANCESTRY = 15
 WEIGHT_EXE_UNREADABLE = 20
-WEIGHT_NO_TTY = 2  WEIGHT_NO_TTY = 2  # lowered this since most background processes have no TTY
+WEIGHT_NO_TTY = 2  # lowered this since most background processes have no TTY
 WEIGHT_RAPID_SPAWN = 5
 
 # Known-good verification (dpkg integrity database)

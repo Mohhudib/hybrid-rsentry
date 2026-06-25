@@ -159,7 +159,7 @@ export default function HostsPage() {
                     <p className="text-white">{risk?.event_count ?? '—'}</p>
                   </div>
                   <div>
-                    <p className="text-gray-600">Alerts</p>
+                    <p className="text-gray-600">Open Alerts</p>
                     <p className="text-white">{risk?.alert_count ?? '—'}</p>
                   </div>
                 </div>

@@ -20,25 +20,25 @@ function Metric({ label, value, trend, color, sq }) {
 }
 
 export default function MetricsStrip({ alerts, events }) {
-  const open      = alerts.length;
-  const critical  = alerts.filter(a => a.severity === 'CRITICAL').length;
-  const high      = alerts.filter(a => a.severity === 'HIGH').length;
-  const hosts     = new Set(alerts.map(a => a.host_id)).size;
+  const unacked    = alerts.filter(a => !a.acknowledged);
+  const open       = unacked.length;
+  const critical   = unacked.filter(a => a.severity === 'CRITICAL').length;
+  const high       = unacked.filter(a => a.severity === 'HIGH').length;
+  const hosts      = new Set(unacked.map(a => a.host_id)).size;
 
-  const recentMs  = 60 * 60 * 1000;
-  const cutoff    = Date.now() - recentMs;
-  const recentEvts = (events || []).filter(e => new Date(e.timestamp).getTime() > cutoff);
-  const eps       = recentEvts.length > 0 ? (recentEvts.length / 3600).toFixed(1) : '0.0';
+  const cutoff60s  = Date.now() - 60 * 1000;
+  const recentEvts = (events || []).filter(e => new Date(e.timestamp).getTime() > cutoff60s);
+  const eps        = recentEvts.length > 0 ? (recentEvts.length / 60).toFixed(2) : '0.00';
 
-  const ruleTypes = new Set((events || []).map(e => e.event_type)).size;
+  const ruleTypes  = new Set((events || []).map(e => e.event_type)).size;
 
   return (
     <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--panel)', flexShrink: 0 }}>
-      <Metric label="Total alerts"    value={open}     trend={open > 0 ? `${open} total` : 'None yet'} />
+      <Metric label="Open alerts"    value={open}     trend={open > 0 ? `${open} unacknowledged` : 'None yet'} />
       <Metric label="Critical"       value={critical} color={critical > 0 ? 'var(--crit)' : undefined} sq="var(--crit)" trend={critical > 0 ? '▲ active' : 'none'} />
       <Metric label="High"           value={high}     color={high > 0 ? 'var(--high)' : undefined} sq="var(--high)" trend={high > 0 ? '▲ active' : 'none'} />
       <Metric label="Hosts affected" value={hosts}    trend={`of monitored`} />
-      <Metric label="Ingest (EPS)"   value={eps}      trend="last hour" />
+      <Metric label="Ingest (EPS)"   value={eps}      trend="last 60s" />
       <Metric label="Event types"    value={ruleTypes} trend="active rules" style={{ borderRight: 0 }} />
     </div>
   );
