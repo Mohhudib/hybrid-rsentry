@@ -17,7 +17,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow?style=flat-square)](LICENSE-APACHE)
 
-**[Landing Page](https://mohhudib.github.io/hybrid-rsentry/)**
+**[Landing Page](https://mohhudib.github.io/hybrid-rsentry/)** &nbsp;·&nbsp; **[Thesis Figures](docs/THESIS_FIGURES.md)**
 
 </div>
 
@@ -38,6 +38,16 @@ Unlike signature-based solutions, Hybrid R-Sentry uses **behavioral analysis** t
 https://github.com/user-attachments/assets/e177cb89-0b59-4d72-88d7-5195a143ce10
 
 </div>
+
+---
+
+## Thesis Figures
+
+All evaluation screenshots and charts referenced in the thesis are collected in one place:
+
+**[→ View all figures (Chapter 6 & 7)](docs/THESIS_FIGURES.md)**
+
+Includes: CRITICAL alert flyout · D3 filesystem graph · SIGSTOP pipeline · AI Threat Analyst · sim_random / sim_depth robustness tests · confusion matrix · per-family detection · FPR chart · latency & overhead · robustness heatmap · PDF forensic export.
 
 ---
 
