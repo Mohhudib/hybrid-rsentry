@@ -47,7 +47,7 @@ All figures referenced in the thesis, organized by chapter.
 ---
 
 ### Figure 6.3.9 — Live Dashboard
-![Fig 6.3.9](screenshots/fig_6.3.9_dashboard.png)
+![Fig 6.3.9](screenshots/fig_6.3.9_live_dashboard.png)
 
 ---
 
