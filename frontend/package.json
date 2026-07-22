@@ -19,12 +19,12 @@
     "underscore": "^1.13.8"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.4.19",
     "esbuild": "^0.25.12",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
-    "vite": "^5.4.21"
+    "vite": "^8.1.0"
   },
   "scripts": {
     "start": "vite",
