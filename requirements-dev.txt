@@ -2,7 +2,7 @@ aiosqlite==0.22.1
 amqp==5.3.1
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==4.13.0
+anyio==4.14.2
 billiard==4.2.4
 celery==5.6.3
 certifi==2026.5.20
